@@ -64,6 +64,17 @@ Program asks for input, you can try the following:
 * "Brutus, do facial recognition"
 * "Brutus, why don't you have legs?"
 
+## Example of usage
+* "Brutus, do facial recognition"
+![Dataflow process and components used](https://s3-eu-west-1.amazonaws.com/brutus-reko/github_picts/rekognition-detectfaces.png "Picture taken, name written in picture as master in compare_faces was detected.")
+
+Words "facial recognition" in input command triggered a raspberrypi_picture response, so a picture was taken, uploaded to S3 Bucket.
+
+Function detect_faces was called, input was the picture in S3 bucket. Then the face was compared with a reference image already stored in S3 bucket.
+
+Output from detected labels was stored in a separate text file and in a variable, labels were written in image using Pillow and matplotlib inside Raspberry Pi, and shown with plot.show() in screen.
+
+
 
 ## Further development
 * Audio feedback has a weird lag. Has something to do with initialising vlc instance. Might be solved easily.
