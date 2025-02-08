@@ -27,6 +27,8 @@ share/python-wheels/
 MANIFEST
 
 #Brutus-specific
+input/
+reference_library/
 output/
 logs/
 *.log
