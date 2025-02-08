@@ -1,0 +1,23 @@
+[project]
+name = "brutus"
+version = "0.1.0"
+description = ""
+license = "MIT"
+authors = [
+    {name = "Antti Väisänen",email = "avaisan@proton.me"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pre-commit (>=4.1.0,<5.0.0)",
+    "boto3 (>=1.36.16,<2.0.0)",
+    "pillow (>=11.1.0,<12.0.0)",
+    "pytest (>=8.3.4,<9.0.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
