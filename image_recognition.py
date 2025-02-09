@@ -1,49 +1,129 @@
 """Feature to return image attributes using AWS Rekognition"""
-# import base64
-# import os
 import logging
+from logging.handlers import RotatingFileHandler
 import boto3
 from botocore.exceptions import ClientError
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ExifTags
+import uuid
 
 
-logging.basicConfig(filename="./logs/brutus.log", level=logging.INFO)
-logger = logging.getLogger(__name__)
+class RequestIdFilter(logging.Filter):
+    def filter(self, record):
+        if not hasattr(record, "request_id"):
+            record.request_id = "-"
+        return True
+
+
+def setup_logger():
+    """Configure logging with rotating file handler and console output"""
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    # Create logs directory if it doesn't exist
+    Path("./logs").mkdir(exist_ok=True)
+
+    # Create formatter
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(request_id)s - %(message)s"
+    )
+
+    # Rotating file handler
+    file_handler = RotatingFileHandler(
+        "./logs/brutus.log", maxBytes=1024 * 1024, backupCount=3  # 1MB
+    )
+    file_handler.setFormatter(formatter)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    # Add the filter to both handlers
+    request_id_filter = RequestIdFilter()
+    file_handler.addFilter(request_id_filter)
+    console_handler.addFilter(request_id_filter)
+
+    # Add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+logger = setup_logger()
 
 
 class ImageAnalyzer:
     def __init__(self):
         try:
             self.rekognition_client = boto3.client("rekognition")
+            logger.info("Successfully initialized Rekognition client")
         except Exception as e:
-            logger.error(f"Failed to initialize client: {str(e)}")
+            logger.error("Failed to initialize client", exc_info=True)
             raise
 
     def analyze_image_file(self, image_path, max_labels=20, save_path=None):
-        """
-        Analyze a local image file
-        """
+        """Analyze a local image file"""
+        request_id = str(uuid.uuid4())
+        extra = {"request_id": request_id}
+        logger.info(f"Starting image analysis for {image_path}", extra=extra)
+
         try:
             with open(image_path, "rb") as image:
                 image_bytes = image.read()
                 results = self.detect_labels_in_image(image_bytes, max_labels)
+            if save_path:
+                logger.info(f"Drawing bounding boxes to {save_path}", extra=extra)
+                self.draw_bounding_boxes(image_path, results, save_path)
 
-                # If save_path is provided, draw bounding boxes and save the image
-                if save_path:
-                    self.draw_bounding_boxes(image_path, results, save_path)
-
-                return results
+            logger.info("Image analysis completed successfully", extra=extra)
+            return results
         except FileNotFoundError:
             logger.error(f"File not found: {image_path}")
         except Exception as e:
-            logger.error(f"Error processing image: {str(e)}")
+            logger.error(f"Error processing image: {str(e)}", exc_info=True)
+
+    def detect_face_details(self, image_bytes, request_id=None):
+        """
+        # Response includes details about:
+        # - Age Range (min/max)
+        # - Smile (boolean + confidence)
+        # - Eyeglasses/Sunglasses
+        # - Facial Hair
+        # - Gender
+        # - Emotions (happy, sad, angry, etc.)
+        # - Eye Open/Closed
+        # - Mouth Open/Closed
+        # - Quality (brightness, sharpness)
+        # - Pose (pitch, roll, yaw)
+        """
+        extra = {"request_id": request_id or str(uuid.uuid4())}
+        logger.info("Starting face detection", extra=extra)
+
+        try:
+            response = self.rekognition_client.detect_faces(
+                Image={"Bytes": image_bytes},
+                Attributes=["ALL"],  # or ['DEFAULT'] for basic attributes
+            )
+
+            face_count = len(response.get("FaceDetails", []))
+            logger.info(f"Detected {face_count} faces", extra=extra)
+            return response["FaceDetails"]
+        except Exception as e:
+            logger.error(
+                f"Error detecting face details: {str(e)}", exc_info=True, extra=extra
+            )
 
     def compare_faces_with_library(
         self, target_image_path, library_folder, similarity_threshold=80
-    ):  # Lower threshold
+    ):
+        request_id = str(uuid.uuid4())
+        extra = {"request_id": request_id}
+        logger.info(
+            f"Starting face comparison - Target: {target_image_path}, Library: {library_folder}",
+            extra=extra,
+        )
         try:
-            print(f"\nProcessing target image: {target_image_path}")
             with open(target_image_path, "rb") as target_file:
                 target_bytes = target_file.read()
 
@@ -52,15 +132,19 @@ class ImageAnalyzer:
             )
 
             if not face_response["FaceDetails"]:
-                print("No faces detected in target image")
+                logger.info("No faces detected in target image", extra=extra)
                 return {"error": "No faces detected in target image"}
 
             matches = []
+            face_count = len(face_response["FaceDetails"])
+            logger.info(f"Found {face_count} faces in target image", extra=extra)
 
             for face_index, target_face in enumerate(face_response["FaceDetails"]):
                 target_box = target_face["BoundingBox"]
-                print(f"\nAnalyzing face {face_index + 1} in target image")
-                print(f"Face location: {target_box}")
+                logger.debug(
+                    f"Analyzing face {face_index + 1} - Location: {target_box}",
+                    extra=extra,
+                )
 
                 best_match = {
                     "face_number": face_index + 1,
@@ -72,7 +156,7 @@ class ImageAnalyzer:
 
                 for ref_image_path in Path(library_folder).glob("*.jpg"):
                     person_name = ref_image_path.stem
-                    print(f"\nComparing with: {person_name}")
+                    logger.debug(f"Comparing with: {person_name}", extra=extra)
 
                     try:
                         with open(ref_image_path, "rb") as ref_file:
@@ -82,42 +166,54 @@ class ImageAnalyzer:
                             SourceImage={"Bytes": ref_bytes},
                             TargetImage={"Bytes": target_bytes},
                             SimilarityThreshold=similarity_threshold,
-                            QualityFilter="LOW",  # More lenient quality filter
+                            QualityFilter="LOW",
                         )
 
                         if not compare_response.get("FaceMatches"):
-                            print(f"No match found with {person_name}")
+                            logger.debug(
+                                f"No match found with {person_name}", extra=extra
+                            )
                             continue
 
                         for match in compare_response["FaceMatches"]:
                             similarity = match["Similarity"]
                             match_box = match["Face"]["BoundingBox"]
-                            print(f"Potential match found:")
-                            print(f"- Similarity: {similarity:.2f}%")
-                            print(f"- Match location: {match_box}")
+                            logger.debug(
+                                f"Match found - Similarity: {similarity:.2f}%, Location: {match_box}",
+                                extra=extra,
+                            )
 
                             if similarity > best_match["similarity"]:
-                                best_match = {
-                                    "face_number": face_index + 1,
-                                    "person_name": person_name,
-                                    "similarity": similarity,
-                                    "confidence": match["Face"]["Confidence"],
-                                    "location": match_box,
-                                }
-                                print(
-                                    f"New best match: {person_name} with {similarity:.2f}% similarity"
+                                best_match.update(
+                                    {
+                                        "person_name": person_name,
+                                        "similarity": similarity,
+                                        "confidence": match["Face"]["Confidence"],
+                                        "location": match_box,
+                                    }
+                                )
+                                logger.info(
+                                    f"New best match: {person_name} with {similarity:.2f}% similarity",
+                                    extra=extra,
                                 )
 
                     except Exception as e:
-                        print(f"Error comparing with {person_name}: {str(e)}")
+                        logger.error(
+                            f"Error comparing with {person_name}: {str(e)}",
+                            exc_info=True,
+                            extra=extra,
+                        )
                         continue
 
                 matches.append(best_match)
 
+            logger.info("Face comparison completed successfully", extra=extra)
             return {"matches": matches, "error": None}
 
         except Exception as e:
-            print(f"Error in comparison process: {str(e)}")
+            logger.error(
+                f"Error in comparison process: {str(e)}", exc_info=True, extra=extra
+            )
             return {"error": str(e)}
 
     def _is_same_face(self, box1, box2, tolerance=0.1):
@@ -141,11 +237,12 @@ class ImageAnalyzer:
 
     def draw_identified_faces(self, image_path, matches, save_path):
         """
-        Draw bounding boxes and labels for identified faces with improved visualization
+        Draw bounding boxes and labels for identified faces
         """
         try:
-            # Open image
+            # Open and correct image orientation
             image = Image.open(image_path)
+            image = self._correct_image_orientation(image)
             draw = ImageDraw.Draw(image)
             width, height = image.size
 
@@ -202,14 +299,39 @@ class ImageAnalyzer:
             logger.error(f"Error drawing identified faces: {str(e)}")
             raise
 
+    def _correct_image_orientation(self, image):
+        """
+        Correct image orientation based on EXIF data
+        """
+        try:
+            # Get EXIF data
+            for orientation in ExifTags.TAGS.keys():
+                if ExifTags.TAGS[orientation] == "Orientation":
+                    break
+
+            exif = image._getexif()
+            if exif is not None:
+                if orientation in exif:
+                    if exif[orientation] == 3:
+                        image = image.rotate(180, expand=True)
+                    elif exif[orientation] == 6:
+                        image = image.rotate(270, expand=True)
+                    elif exif[orientation] == 8:
+                        image = image.rotate(90, expand=True)
+
+            return image
+        except (AttributeError, KeyError, IndexError, TypeError):
+            # If there's no EXIF data or other issues, return original image
+            return image
+
     def draw_bounding_boxes(self, original_image_path, results, save_path):
         """
         Draw bounding boxes on the image and save it
-        Only draws boxes for people and animals
         """
         try:
-            # Open the original image
+            # Open and correct image orientation
             image = Image.open(original_image_path)
+            image = self._correct_image_orientation(image)
             draw = ImageDraw.Draw(image)
 
             # Get image dimensions
@@ -264,7 +386,7 @@ class ImageAnalyzer:
 
     def _process_response(self, response):
         """
-        Process and format the detection response
+        Process and format the detection response with deduplication
         """
         results = {
             "objects": [],
@@ -275,6 +397,9 @@ class ImageAnalyzer:
         }
 
         try:
+            # Keep track of processed boxes only for people
+            processed_people_boxes = []
+
             for label in response["Labels"]:
                 item = {
                     "name": label["Name"],
@@ -282,120 +407,95 @@ class ImageAnalyzer:
                     "instances": [],
                 }
 
+                is_person = label["Name"].lower() == "person" or any(
+                    p.get("Name") == "Person" for p in label.get("Parents", [])
+                )
+
                 # Add bounding box information if available
                 if label["Instances"]:
                     for instance in label["Instances"]:
                         box = instance["BoundingBox"]
-                        item["instances"].append(
-                            {"confidence": f"{instance['Confidence']:.2f}%", "box": box}
-                        )
 
-                # Categorize the label
-                if label["Name"].lower() == "person":
-                    results["people"].append(item)
+                        # Only apply deduplication to people
+                        if is_person:
+                            is_duplicate = False
+                            for processed_box in processed_people_boxes:
+                                if self._boxes_overlap(
+                                    box, processed_box, threshold=0.5
+                                ):
+                                    is_duplicate = True
+                                    break
+
+                            if not is_duplicate:
+                                processed_people_boxes.append(box)
+                                item["instances"].append(
+                                    {
+                                        "confidence": f"{instance['Confidence']:.2f}%",
+                                        "box": box,
+                                    }
+                                )
+                        else:
+                            # For non-person objects, add all instances
+                            item["instances"].append(
+                                {
+                                    "confidence": f"{instance['Confidence']:.2f}%",
+                                    "box": box,
+                                }
+                            )
+
+                # For objects without instances, or after processing instances
+                if is_person:
+                    if item["instances"]:  # Only add if we have unique instances
+                        results["people"].append(item)
                 elif any(p.get("Name") == "Animal" for p in label.get("Parents", [])):
                     results["animals"].append(item)
-                elif any(p.get("Name") == "Person" for p in label.get("Parents", [])):
-                    results["people"].append(item)
                 else:
-                    results["objects"].append(item)
+                    # For non-person objects, add them even without instances
+                    if label["Instances"]:
+                        results["objects"].append(item)
+                    else:
+                        # Add objects without bounding boxes
+                        item_without_instances = {
+                            "name": label["Name"],
+                            "confidence": f"{label['Confidence']:.2f}%",
+                        }
+                        results["objects"].append(item_without_instances)
 
             return results
         except Exception as e:
             logger.error(f"Error processing response: {str(e)}")
 
+    def _boxes_overlap(self, box1, box2, threshold=0.5):
 
-def main():
-    try:
-        analyzer = ImageAnalyzer()
+        """
+        Check if two bounding boxes overlap significantly
 
-        # Set up paths
-        input_image = "input/input_image.jpg"
-        known_faces_dir = "reference_library/"
-        output_path = "output/analyzed_image.jpg"
+        Args:
+            box1 (dict): First bounding box with Left, Top, Width, Height
+            box2 (dict): Second bounding box with Left, Top, Width, Height
+            threshold (float): Minimum intersection over union (IoU) to consider as overlap
 
-        print(f"\nAnalyzing image: {input_image}")
+        Returns:
+            bool: True if boxes overlap significantly
+        """
+        # Calculate coordinates
+        x1 = max(box1["Left"], box2["Left"])
+        y1 = max(box1["Top"], box2["Top"])
+        x2 = min(box1["Left"] + box1["Width"], box2["Left"] + box2["Width"])
+        y2 = min(box1["Top"] + box1["Height"], box2["Top"] + box2["Height"])
 
-        # First try to identify any known people
-        print("\nChecking for known people...")
-        face_results = analyzer.compare_faces_with_library(input_image, known_faces_dir)
+        # Calculate intersection area
+        if x2 <= x1 or y2 <= y1:
+            return False
 
-        if face_results.get("error"):
-            print(f"Error in face comparison: {face_results['error']}")
-            known_faces_found = False
-        else:
-            known_faces_found = any(
-                match["similarity"] > 0 for match in face_results["matches"]
-            )
+        intersection = (x2 - x1) * (y2 - y1)
 
-            # Print face recognition results
-            print("\nFace Recognition Results:")
-            for match in face_results["matches"]:
-                if match["similarity"] > 0:
-                    print(f"\nFace {match['face_number']}:")
-                    print(f"✓ Identified as: {match['person_name']}")
-                    print(f"  Similarity: {match['similarity']}")
-                    print(f"  Confidence: {match['confidence']}")
+        # Calculate union area
+        area1 = box1["Width"] * box1["Height"]
+        area2 = box2["Width"] * box2["Height"]
+        union = area1 + area2 - intersection
 
-                    # Add confidence level indicator
-                    if isinstance(match["similarity"], str):
-                        similarity = float(match["similarity"].rstrip("%"))
-                    else:
-                        similarity = match["similarity"]
+        # Calculate IoU (Intersection over Union)
+        iou = intersection / union if union > 0 else 0
 
-                    if similarity >= 95:
-                        print("  Confidence Level: High ★★★")
-                    elif similarity >= 90:
-                        print("  Confidence Level: Medium ★★")
-                    else:
-                        print("  Confidence Level: Low ★")
-
-        # Now analyze the general content of the image
-        print("\nAnalyzing image content...")
-        with open(input_image, "rb") as image_file:
-            image_bytes = image_file.read()
-
-        content_results = analyzer.detect_labels_in_image(image_bytes)
-
-        if content_results.get("error"):
-            print(f"Error in image analysis: {content_results['error']}")
-        else:
-            print("\nImage Content Analysis:")
-
-            # Print people detected (even if not identified)
-            if content_results.get("people"):
-                print("\nPeople detected:")
-                for person in content_results["people"]:
-                    print(f"- Person detected (Confidence: {person['confidence']})")
-
-            # Print animals detected
-            if content_results.get("animals"):
-                print("\nAnimals detected:")
-                for animal in content_results["animals"]:
-                    print(f"- {animal['name']} (Confidence: {animal['confidence']})")
-
-            # Print other significant objects
-            if content_results.get("objects"):
-                print("\nOther objects detected:")
-                for obj in content_results["objects"]:
-                    print(f"- {obj['name']} (Confidence: {obj['confidence']})")
-
-        # Draw boxes on the image
-        print("\nGenerating annotated image...")
-        if known_faces_found:
-            # If known faces were found, draw face recognition boxes
-            analyzer.draw_identified_faces(
-                input_image, face_results["matches"], output_path
-            )
-        else:
-            # If no known faces, draw general detection boxes
-            analyzer.draw_bounding_boxes(input_image, content_results, output_path)
-
-        print(f"Annotated image saved to: {output_path}")
-
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-
-
-if __name__ == "__main__":
-    main()
+        return iou > threshold

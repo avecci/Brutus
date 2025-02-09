@@ -12,15 +12,16 @@ def create_test_suite():
     """Create a test suite combining both unit and integration tests"""
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-    
+
     # Run integration tests
-   # suite.addTests(loader.loadTestsFromName('test_image_analysis_int'))
+    suite.addTests(loader.loadTestsFromName("test_image_analysis_int"))
     # Run unit tests
-    suite.addTests(loader.loadTestsFromName('test_image_analysis_unit'))
-    
+    suite.addTests(loader.loadTestsFromName("test_image_analysis_unit"))
+
     return suite
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     runner = unittest.TextTestRunner(verbosity=2)
     test_suite = create_test_suite()
     runner.run(test_suite)
