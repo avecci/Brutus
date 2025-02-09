@@ -14,7 +14,7 @@ def create_test_suite():
     suite = unittest.TestSuite()
 
     # Run integration tests
-    suite.addTests(loader.loadTestsFromName("test_image_analysis_int"))
+    suite.addTests(loader.loadTestsFromName("test_image_analysis_integration"))
     # Run unit tests
     suite.addTests(loader.loadTestsFromName("test_image_analysis_unit"))
 

@@ -1,15 +1,8 @@
 import logging
+from pythonjsonlogger.jsonlogger import JsonFormatter
 import uuid
 from pathlib import Path
-from image_recognition import ImageAnalyzer
-
-# Create a filter to add request_id if not present
-class RequestIdFilter(logging.Filter):
-    def filter(self, record):
-        if not hasattr(record, "request_id"):
-            record.request_id = "-"
-        return True
-
+from image_recognition import ImageAnalyzer, RequestIdFilter
 
 # Get the logger
 logger = logging.getLogger(__name__)
@@ -61,80 +54,84 @@ def main():
 
             # 2. Print detailed face attributes for each detected face
             if face_details:
-                logger.info("\n👤 Face Details:", extra=extra)
+                faces_data = []
                 for i, face in enumerate(face_details, 1):
-                    logger.info(f"\nFace {i}:", extra=extra)
+                    face_info = {"face_number": i, "attributes": {}}
 
                     # Age Range
                     if "AgeRange" in face:
-                        logger.info(
-                            f"  Age Range: {face['AgeRange']['Low']}-{face['AgeRange']['High']} years",
-                            extra=extra,
-                        )
+                        face_info["attributes"]["age_range"] = {
+                            "low": face["AgeRange"]["Low"],
+                            "high": face["AgeRange"]["High"],
+                        }
 
                     # Gender
                     if "Gender" in face:
-                        logger.info(
-                            f"  Gender: {face['Gender']['Value']} "
-                            f"(Confidence: {face['Gender']['Confidence']:.2f}%)",
-                            extra=extra,
-                        )
+                        face_info["attributes"]["gender"] = {
+                            "value": face["Gender"]["Value"],
+                            "confidence": f"{face['Gender']['Confidence']:.2f}%",
+                        }
 
-                    # Emotions - Show top 3 emotions
+                    # Emotions - Include all emotions in a list
                     if "Emotions" in face:
-                        logger.info("  Emotions:", extra=extra)
                         sorted_emotions = sorted(
                             face["Emotions"],
                             key=lambda x: x["Confidence"],
                             reverse=True,
                         )[:3]
-                        for emotion in sorted_emotions:
-                            logger.info(
-                                f"    - {emotion['Type'].lower().capitalize()}: "
-                                f"{emotion['Confidence']:.2f}%",
-                                extra=extra,
-                            )
+                        face_info["attributes"]["emotions"] = [
+                            {
+                                "type": emotion["Type"].lower().capitalize(),
+                                "confidence": f"{emotion['Confidence']:.2f}%",
+                            }
+                            for emotion in sorted_emotions
+                        ]
 
                     # Facial Features
                     features = {
-                        "Smile": "Smiling",
-                        "EyesOpen": "Eyes open",
-                        "MouthOpen": "Mouth open",
-                        "Eyeglasses": "Wearing glasses",
-                        "Sunglasses": "Wearing sunglasses",
+                        "Smile": "smiling",
+                        "EyesOpen": "eyes_open",
+                        "MouthOpen": "mouth_open",
+                        "Eyeglasses": "wearing_glasses",
+                        "Sunglasses": "wearing_sunglasses",
                     }
 
-                    logger.info("  Facial Features:", extra=extra)
-                    for key, description in features.items():
+                    face_info["attributes"]["facial_features"] = {}
+                    for key, attr_name in features.items():
                         if key in face:
-                            value = face[key]["Value"]
-                            confidence = face[key]["Confidence"]
-                            logger.info(
-                                f"    - {description}: {'Yes' if value else 'No'} "
-                                f"({confidence:.2f}%)",
-                                extra=extra,
-                            )
+                            face_info["attributes"]["facial_features"][attr_name] = {
+                                "value": "Yes" if face[key]["Value"] else "No",
+                                "confidence": f"{face[key]['Confidence']:.2f}%",
+                            }
 
-                    # Quality metrics
-                    if "Quality" in face:
-                        logger.info("  Image Quality:", extra=extra)
-                        logger.info(
-                            f"    - Brightness: {face['Quality']['Brightness']:.2f}",
-                            extra=extra,
-                        )
-                        logger.info(
-                            f"    - Sharpness: {face['Quality']['Sharpness']:.2f}",
-                            extra=extra,
-                        )
+                    faces_data.append(face_info)
 
-        # 3. Print animal detection results
-        if content_results and content_results.get("animals"):
-            logger.info("\n🐾 Animals Detected:", extra=extra)
-            for animal in content_results["animals"]:
+                # Log all face data as a single structured record
                 logger.info(
-                    f"- {animal['name']} (Confidence: {animal['confidence']})",
-                    extra=extra,
+                    "Face Analysis Results",
+                    extra={"request_id": request_id, "faces_data": faces_data},
                 )
+        # Similarly structure other data
+        if content_results and content_results.get("people"):
+            people_data = [
+                {"confidence": person["confidence"]}
+                for person in content_results["people"]
+            ]
+            logger.info(
+                "People Detection Results",
+                extra={"request_id": request_id, "people": people_data},
+            )
+
+        # 3. Animals
+        if content_results and content_results.get("animals"):
+            animals_data = [
+                {"name": animal["name"], "confidence": animal["confidence"]}
+                for animal in content_results["animals"]
+            ]
+            logger.info(
+                "Animal Detection Results",
+                extra={"request_id": request_id, "animals": animals_data},
+            )
 
         # 4. Print clothing and accessories
         if content_results and content_results.get("objects"):
@@ -157,7 +154,7 @@ def main():
             ]
 
             if clothing_items:
-                logger.info("\n👔 Clothing and Accessories:", extra=extra)
+                logger.info("\n Clothing and Accessories:", extra=extra)
                 for item in clothing_items:
                     logger.info(
                         f"- {item['name']} (Confidence: {item['confidence']})",
@@ -194,9 +191,25 @@ if __name__ == "__main__":
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    # Create formatter
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(request_id)s - %(message)s"
+    # Create JSON formatter
+    class CustomJsonFormatter(JsonFormatter):
+        def add_fields(self, log_record, record, message_dict):
+            super().add_fields(log_record, record, message_dict)
+            log_record["timestamp"] = record.created
+            log_record["level"] = record.levelname
+            log_record["logger"] = record.name
+            log_record["request_id"] = getattr(record, "request_id", "-")
+
+            # Add any additional fields from extra
+            if hasattr(record, "faces"):
+                log_record["faces"] = record.faces
+            if hasattr(record, "people"):
+                log_record["people"] = record.people
+            if hasattr(record, "animals"):
+                log_record["animals"] = record.animals
+
+    formatter = CustomJsonFormatter(
+        "%(timestamp)s %(level)s %(logger)s %(request_id)s %(message)s"
     )
 
     # File handler
