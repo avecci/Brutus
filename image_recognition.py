@@ -24,9 +24,11 @@ class ImageAnalyzer:
     @staticmethod
     def _source_image(image_path):
         """
-        Load and return an image with correct orientation based on EXIF data.
+        Load and return an image bytes with correct orientation based on EXIF data.
         This ensures consistent orientation whether image was taken in 
         portrait or landscape mode.
+
+        If orientation data (EXIF) does not exist, continue with original image.
 
         Args:
             image_path (str): Path to the source image file
@@ -37,10 +39,8 @@ class ImageAnalyzer:
         image = Image.open(image_path)
 
         try:
-            # Get EXIF data if available
             exif = image._getexif()
             if exif is not None:
-                # Check orientation tag (274) and rotate accordingly
                 orientation = exif.get(274)
                 if orientation:
                     rotate_values = {
@@ -51,10 +51,8 @@ class ImageAnalyzer:
                     if orientation in rotate_values:
                         image = image.rotate(rotate_values[orientation], expand=True)
         except (AttributeError, KeyError, IndexError):
-            # If EXIF data is invalid or missing, continue with original image
             pass
         
-        # Convert PIL Image to bytes
         with io.BytesIO() as bio:
             image.save(bio, format='JPEG')
             return bio.getvalue()
@@ -90,9 +88,8 @@ class ImageAnalyzer:
                 MinConfidence=min_confidence
             )
 
-            # Process labels and add instance numbers
             processed_labels = []
-            instance_counter = 1  # Global counter for all instances across all labels
+            instance_counter = 1
 
             for label in response['Labels']:
                 processed_label = {
@@ -100,7 +97,6 @@ class ImageAnalyzer:
                     'Confidence': label['Confidence']
                 }
 
-                # Process instances if they exist
                 if 'Instances' in label and label['Instances']:
                     processed_instances = []
                     for instance in label['Instances']:
@@ -135,7 +131,7 @@ class ImageAnalyzer:
 
     def detect_and_return_face_details(self, image_path):
         """
-        Detect face details in an image and return structured analysis.
+        Detect face details in an image and return analysis.
 
         Args:
             image_path (str): Path to the image file to analyze
@@ -158,7 +154,6 @@ class ImageAnalyzer:
 
             faces = response.get("FaceDetails", [])
 
-            # Process and return structured results
             face_analyses = []
             for face_number, face in enumerate(response['FaceDetails'], 1):
                 emotions = face.get("Emotions", [])
@@ -219,7 +214,6 @@ class ImageAnalyzer:
             }
         )
 
-        # Get and orient target image, then detect faces
         target_image_bytes = self._source_image(target_image_path)
         target_faces = self.rekognition_client.detect_faces(
             Image={"Bytes": target_image_bytes},
@@ -229,9 +223,9 @@ class ImageAnalyzer:
             logger.info("No faces detected", 
                         extra={"image_path": str(target_image_path)})
             return {"error": "No faces detected"}
-        # Dictionary to store best match for each reference person
+
         best_matches = {}
-        # Get all image files from reference library folder
+
         library_images = [f for f in os.listdir(library_folder) 
                          if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
         
@@ -248,7 +242,6 @@ class ImageAnalyzer:
                 face_matches = comparison.get("FaceMatches", [])
                 if face_matches:
                     best_match = max(face_matches, key=lambda x: x["Similarity"])
-                    # Update best match if this is the highest similarity for this person
                     if person_name not in best_matches or \
                        best_match["Similarity"] > best_matches[person_name]["similarity"]:
                         best_matches[person_name] = {
@@ -294,32 +287,30 @@ class ImageAnalyzer:
         Returns:
             PIL Image with bounding boxes drawn
         """
-        # Create drawing object
+
         image = Image.open(image_path)
         draw = ImageDraw.Draw(image)
         width, height = image.size
         font = ImageFont.load_default()
 
-        # Get all detection results
+
         faces = self.detect_and_return_face_details(image_path)
         comparison_results = self.compare_faces_with_library(image_path, known_faces_dir)
         labels = self.detect_labels_in_image(image_path)
 
-        # Check if there are any humans or animals in the image
+        # Check if there are any humans or animals in the image.
         has_humans = faces and "error" not in faces and 'faces' in faces and len(faces['faces']) > 0
         has_animals = any(
             label['Name'] in ['Animal', 'Pet', 'Dog', 'Cat', 'Bird'] 
             for label in labels if 'Instances' in label and label['Instances']
         )
 
-        # First handle faces if present
         if has_humans:
-            # Get recognized faces info
             recognized_faces = {}
             if (comparison_results and "error" not in comparison_results and 
                 'matches' in comparison_results and comparison_results['matches']):
 
-                # For each recognized person, get their face match details
+                # For each recognized person, get their face match details and bounding box info
                 for match in comparison_results['matches']:
                     source_image = os.path.join(known_faces_dir, f"{match['person']}.jpg")
                     try:
@@ -329,7 +320,6 @@ class ImageAnalyzer:
                             SimilarityThreshold=80
                         )
 
-                        # Store the bounding box of the matched face
                         if face_matches['FaceMatches']:
                             matched_face = face_matches['FaceMatches'][0]['Face']
                             recognized_faces[str(matched_face['BoundingBox'])] = match['person']
@@ -342,7 +332,6 @@ class ImageAnalyzer:
                 box = face['BoundingBox']
                 box_str = str(box)
 
-                # Convert normalized coordinates to pixel values
                 left = width * box['Left']
                 top = height * box['Top']
                 right = left + (width * box['Width'])
@@ -357,13 +346,12 @@ class ImageAnalyzer:
                     draw.text((left, top-20), text, 
                              fill='orange', font=font)
                 else:
-                    # Draw red box for unrecognized face
                     draw.rectangle([left, top, right, bottom], 
                                  outline='red', width=2)
                     draw.text((left, top-20), str(face['face_number']), 
                              fill='red', font=font)
 
-        # Then handle animals if present and no humans
+        # Handle animals if present
         if has_animals:
             for label in labels:
                 if ('Instances' in label and 
@@ -371,7 +359,6 @@ class ImageAnalyzer:
                     for instance in label['Instances']:
                         box = instance['BoundingBox']
 
-                        # Convert normalized coordinates to pixel values
                         left = width * box['Left']
                         top = height * box['Top']
                         right = left + (width * box['Width'])
@@ -391,7 +378,6 @@ class ImageAnalyzer:
                     for instance in label['Instances']:
                         box = instance['BoundingBox']
 
-                        # Convert normalized coordinates to pixel values
                         left = width * box['Left']
                         top = height * box['Top']
                         right = left + (width * box['Width'])
@@ -405,4 +391,3 @@ class ImageAnalyzer:
                                     fill='green', font=font)
 
         return image
-
