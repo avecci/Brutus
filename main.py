@@ -1,4 +1,5 @@
-from image_recognition import ImageAnalyzer
+from image_recognition import BrutusSees
+from speech_generator import BrutusSpeaks
 from pprint import pprint
 
 
@@ -9,7 +10,7 @@ def main():
     output_path = "output/analyzed_image.jpg"
 
     # Initialize analyzer
-    analyzer = ImageAnalyzer()
+    analyzer = BrutusSees()
 
     print("\n=== Starting Image Analysis ===\n")
 

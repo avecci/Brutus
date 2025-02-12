@@ -2,38 +2,17 @@
 import io
 import os
 import json
-import logging
-from pythonjsonlogger import jsonlogger
-from pythonjsonlogger.json import JsonFormatter
+from logging_utils import setup_logger
 import boto3
 import botocore
 from botocore.exceptions import ClientError
 from PIL import Image, ImageDraw, ImageFont, ExifTags
-import datetime
 
 
-# Setup JSON logger
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# Create handlers
-file_handler = logging.FileHandler(os.path.join("logs", "brutus.log"))
-stream_handler = logging.StreamHandler()
-
-# Create formatter
-file_handler.setFormatter(
-    jsonlogger.JsonFormatter("%(timestamp)s %(levelname)s %(message)s ", timestamp=True)
-)
-stream_handler.setFormatter(
-    jsonlogger.JsonFormatter("%(timestamp)s %(levelname)s %(message)s ", timestamp=True)
-)
-
-# Add both handlers to logger
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
+logger = setup_logger(__name__)
 
 
-class ImageAnalyzer:
+class BrutusSees:
     """
     Class to acts as Brutus' eyes. Analyzes given image using AWS Rekognition.
     Returns labels for objects, human features and tells if it sees a recognised person in the image such as Master.

@@ -4,7 +4,7 @@ from pathlib import Path
 import io
 import sys
 from PIL import Image
-from image_recognition import ImageAnalyzer
+from image_recognition import BrutusSees
 
 class TestImageAnalyzerUnit(unittest.TestCase):
     """Unit tests for image analysis:
@@ -22,7 +22,7 @@ class TestImageAnalyzerUnit(unittest.TestCase):
         
         # Create analyzer with mocked Rekognition client
         with patch('boto3.client'):
-            self.analyzer = ImageAnalyzer()
+            self.analyzer = BrutusSees()
             self.analyzer.rekognition_client = Mock()
 
     def tearDown(self):
@@ -32,7 +32,7 @@ class TestImageAnalyzerUnit(unittest.TestCase):
     def test_init_success(self):
         """Test successful initialization"""
         with patch('boto3.client') as mock_boto3_client:
-            analyzer = ImageAnalyzer()
+            analyzer = BrutusSees()
             mock_boto3_client.assert_called_once_with("rekognition")
             self.mock_logger.info.assert_called_with("Successfully initialized Rekognition client")
 
@@ -41,7 +41,7 @@ class TestImageAnalyzerUnit(unittest.TestCase):
         with patch('boto3.client') as mock_boto3_client:
             mock_boto3_client.side_effect = Exception("AWS Error")
             with self.assertRaises(Exception):
-                ImageAnalyzer()
+                BrutusSees()
             self.mock_logger.error.assert_called_with("Failed to initialize client", exc_info=True)
 
     @patch('PIL.Image.open')

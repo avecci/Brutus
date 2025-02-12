@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from image_recognition import ImageAnalyzer
+from image_recognition import BrutusSees
 from PIL import Image
 
 
@@ -13,7 +13,7 @@ class TestImageAnalysisIntegration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup test environment"""
-        self.analyzer = ImageAnalyzer()
+        self.analyzer = BrutusSees()
         self.test_images_dir = Path("tests/test_data/images")
         self.known_faces_dir = self.test_images_dir / "reference"
 
