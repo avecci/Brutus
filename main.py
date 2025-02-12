@@ -1,6 +1,7 @@
 from image_recognition import ImageAnalyzer
 from pprint import pprint
 
+
 def main():
     # Initialize paths
     input_image = "input/input_image.jpg"
@@ -15,21 +16,24 @@ def main():
     # 1. Detect labels
     print("Label Detection Results:")
     label_results = analyzer.detect_labels_in_image(input_image)
-    label_index = 0
-    for label in label_results:
-        if 'Instances' in label:
-            for instance in label['Instances']:
-                print(f"Label {label_index}: {label['Name']} - Confidence: {instance['Confidence']:.1f}%")
-                label_index += 1
-    print()
+    # label_index = 0
+    # for label in label_results:
+    #    if 'Instances' in label:
+    #        for instance in label['Instances']:
+    #            print(f"Label {label_index}: {label['Name']} - Confidence: {instance['Confidence']:.1f}%")
+    #            label_index += 1
+    # print()
+    print(label_results)
 
     # 2. Compare faces with reference library
     print("Face Comparison Results:")
     face_comparison = analyzer.compare_faces_with_library(input_image, known_faces_dir)
     if face_comparison and "error" not in face_comparison:
-        if 'matches' in face_comparison:
-            for match in face_comparison['matches']:
-                print(f"Face: {match['person']} - Similarity: {match['similarity']:.1f}%")
+        if "matches" in face_comparison:
+            for match in face_comparison["matches"]:
+                print(
+                    f"Face: {match['person']} - Similarity: {match['similarity']:.1f}%"
+                )
     print()
 
     # 3. Get face details
@@ -45,6 +49,7 @@ def main():
     print(f"Analyzed image saved to: {output_path}")
 
     print("\n=== Analysis Complete ===")
+
 
 if __name__ == "__main__":
     main()
