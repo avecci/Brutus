@@ -1,140 +1,145 @@
 import pytest
 from pathlib import Path
 from image_recognition import ImageAnalyzer
+from PIL import Image
 
 
 @pytest.mark.integration
 class TestImageAnalysisIntegration:
+    """
+    Test the overall functionality of image analysis.
+    Compare output of methods to known images.
+    """
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup test environment"""
         self.analyzer = ImageAnalyzer()
         self.test_images_dir = Path("tests/test_data/images")
+        self.known_faces_dir = self.test_images_dir / "reference"
 
     @pytest.fixture
     def get_image_path(self):
         """Helper fixture to get image paths and ensure they exist"""
-
         def _get_path(image_name):
             path = self.test_images_dir / image_name
             assert path.exists(), f"Test image not found: {image_name}"
-            return path
-
+            return str(path)
         return _get_path
 
-    def get_unique_boxes(self, items):
-        """Helper method to extract unique bounding boxes"""
-        unique_boxes = set()
-        for item in items:
-            box = item.get("bounding_box", {})
-            if box:  # Only add if box exists
-                box_tuple = (
-                    round(box["Left"], 3),
-                    round(box["Top"], 3),
-                    round(box["Width"], 3),
-                    round(box["Height"], 3),
-                )
-                unique_boxes.add(box_tuple)
-        return unique_boxes
-
-    def assert_no_error(self, result):
-        """Helper method to check for analysis errors"""
-        assert not result.get(
-            "error"
-        ), f"Analysis failed with error: {result.get('error')}"
-
-    @pytest.mark.parametrize(
-        "image_name,min_people,min_animals,min_objects",
-        [
-            ("one_person.jpg", 1, 0, 0),  # At least 1 person
-            ("multiple_people.jpg", 3, 0, 0),  # Should find exactly 3 people
-            ("object.jpg", 0, 0, 1),  # At least 1 object, no people/animals
-            ("one_person_and_object.jpg", 1, 0, 1),  # At least 1 person and 1 object
-            ("animal.jpg", 0, 1, 0),  # At least 1 animal, no people/objects
-        ],
-    )
-    def test_detection_counts(
-        self, get_image_path, image_name, min_people, min_animals, min_objects
-    ):
-        """Test detection counts for various image types"""
-        image_path = get_image_path(image_name)
-        result = self.analyzer.analyze_image_file(str(image_path))
-
-        self.assert_no_error(result)
-
-        # Debug logging
-        print(f"\nAnalysis result for {image_name}:")
-        print(f"Raw people detections: {result['people']}")
-
-        people_boxes = self.get_unique_boxes(result["people"])
-        animal_boxes = self.get_unique_boxes(result["animals"])
-        object_boxes = self.get_unique_boxes(result["objects"])
-
-        print(f"Unique people boxes found: {people_boxes}")
-
-        # Check minimum counts while allowing for additional detections
-        assert len(people_boxes) >= min_people, (
-            f"Expected at least {min_people} people, found {len(people_boxes)}.\n"
-            f"Raw detections: {result['people']}"
+    def test_animal_detection(self, get_image_path):
+        """Test animal.jpg - should detect exactly 1 dog, no humans"""
+        image_path = get_image_path("animal.jpg")
+        
+        # Check for human face detection (should be none)
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is None or len(faces.get('faces', [])) == 0, "No humans should be detected"
+        
+        # Check label detection
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        animal_instances = sum(
+            len(label.get('Instances', []))
+            for label in labels
+            if label['Name'] in ['Animal', 'Dog', 'Pet']
         )
-        assert (
-            len(animal_boxes) >= min_animals
-        ), f"Expected at least {min_animals} animals, found {len(animal_boxes)}"
-        assert (
-            len(object_boxes) >= min_objects
-        ), f"Expected at least {min_objects} objects, found {len(object_boxes)}"
+        assert animal_instances == 1, "Exactly one animal should be detected"
 
-        # Check that we don't detect people/animals where there shouldn't be any
-        if min_people == 0:
-            assert (
-                len(people_boxes) == 0
-            ), f"Found {len(people_boxes)} people in {image_name} where there should be none"
-        if min_animals == 0:
-            assert (
-                len(animal_boxes) == 0
-            ), f"Found {len(animal_boxes)} animals in {image_name} where there should be none"
+    def test_multiple_people_detection(self, get_image_path):
+        """Test multiple_people.jpg - should detect exactly 3 people, no animals"""
+        image_path = get_image_path("multiple_people.jpg")
+        
+        # Check face detection
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is not None and len(faces['faces']) == 3, "Exactly three faces should be detected"
+        
+        # Check no animals
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        animal_labels = [label for label in labels if label['Name'] in ['Animal', 'Dog', 'Pet', 'Cat', 'Bird']]
+        assert len(animal_labels) == 0, "No animals should be detected"
 
-    @pytest.mark.parametrize(
-        "image_name,min_people,min_animals,min_objects",
-        [
-            ("one_person.jpg", 1, 0, 0),  # At least 1 person
-            ("multiple_people.jpg", 3, 0, 0),  # Should find exactly 3 people
-            ("object.jpg", 0, 0, 1),  # At least 1 object, no people/animals
-            ("one_person_and_object.jpg", 1, 0, 1),  # At least 1 person and 1 object
-            ("animal.jpg", 0, 1, 0),  # At least 1 animal, no people/objects
-        ],
-    )
-    def test_bounding_box_validity(
-        self, get_image_path, image_name, min_people, min_animals, min_objects
-    ):
-        """Test bounding box coordinate validity"""
-        image_path = get_image_path(image_name)
-        result = self.analyzer.analyze_image_file(str(image_path))
+    def test_object_detection(self, get_image_path):
+        """Test object.jpg - should detect exactly 1 airplane, no humans/animals"""
+        image_path = get_image_path("object.jpg")
+        
+        # Check no faces
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is None or len(faces.get('faces', [])) == 0, "No humans should be detected"
+        
+        # Check labels
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        airplane_instances = sum(
+            len(label.get('Instances', []))
+            for label in labels
+            if label['Name'] in ['Airplane', 'Aircraft', 'Plane']
+        )
+        assert airplane_instances == 1, "Exactly one airplane should be detected"
+        
+        # Verify no animals
+        animal_labels = [label for label in labels if label['Name'] in ['Animal', 'Dog', 'Pet', 'Cat', 'Bird']]
+        assert len(animal_labels) == 0, "No animals should be detected"
 
-        self.assert_no_error(result)
+    def test_one_person_detection(self, get_image_path):
+        """Test one_person.jpg - should detect exactly 1 person, no animals"""
+        image_path = get_image_path("one_person.jpg")
+        
+        # Check face detection
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is not None and len(faces['faces']) == 1, "Exactly one face should be detected"
+        
+        # Check no animals
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        animal_labels = [label for label in labels if label['Name'] in ['Animal', 'Dog', 'Pet', 'Cat', 'Bird']]
+        assert len(animal_labels) == 0, "No animals should be detected"
 
-        for category in ["people", "objects", "animals"]:
-            for item in result[category]:
-                box = item.get("bounding_box", {})
-                if box:
-                    # Check coordinate ranges
-                    assert (
-                        0 <= box["Left"] <= 1
-                    ), f"Invalid Left coordinate in {image_name}: {box['Left']}"
-                    assert (
-                        0 <= box["Top"] <= 1
-                    ), f"Invalid Top coordinate in {image_name}: {box['Top']}"
-                    assert (
-                        0 <= box["Width"] <= 1
-                    ), f"Invalid Width in {image_name}: {box['Width']}"
-                    assert (
-                        0 <= box["Height"] <= 1
-                    ), f"Invalid Height in {image_name}: {box['Height']}"
+    def test_person_and_object_detection(self, get_image_path):
+        """Test one_person_and_object.jpg - should detect 1 person and at least 1 object (car), no animals"""
+        image_path = get_image_path("one_person_and_object.jpg")
+        
+        # Check face detection
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is not None and len(faces['faces']) == 1, "Exactly one face should be detected"
+        
+        # Check labels for car and no animals
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        car_instances = sum(
+            len(label.get('Instances', []))
+            for label in labels
+            if label['Name'] in ['Car', 'Automobile', 'Vehicle']
+        )
+        assert car_instances >= 1, "At least one car should be detected"
+        
+        # Verify no animals
+        animal_labels = [label for label in labels if label['Name'] in ['Animal', 'Dog', 'Pet', 'Cat', 'Bird']]
+        assert len(animal_labels) == 0, "No animals should be detected"
 
-                    # Check box dimensions
-                    assert (
-                        box["Left"] + box["Width"] <= 1
-                    ), f"Box extends beyond right edge in {image_name}"
-                    assert (
-                        box["Top"] + box["Height"] <= 1
-                    ), f"Box extends beyond bottom edge in {image_name}"
+    def test_person_and_dog_detection(self, get_image_path):
+        """Test person_and_dog.jpg - should detect exactly 1 person and 1 dog"""
+        image_path = get_image_path("person_and_dog.jpg")
+        
+        # Check face detection
+        faces = self.analyzer.detect_and_return_face_details(image_path)
+        assert faces is not None and len(faces['faces']) == 1, "Exactly one face should be detected"
+        
+        # Check animal detection
+        labels = self.analyzer.detect_labels_in_image(image_path)
+        animal_instances = sum(
+            len(label.get('Instances', []))
+            for label in labels
+            if label['Name'] in ['Animal', 'Dog', 'Pet']
+        )
+        assert animal_instances == 1, "Exactly one animal should be detected"
+
+    def test_face_recognition(self, get_image_path):
+        """Test face recognition between one_person.jpg and reference_person_1.jpg"""
+        image_path = get_image_path("one_person.jpg")
+        
+        # Test face comparison
+        comparison_results = self.analyzer.compare_faces_with_library(
+            image_path, 
+            str(self.known_faces_dir)
+        )
+        
+        # Verify person is recognized
+        assert comparison_results is not None, "Comparison results should not be None"
+        assert 'matches' in comparison_results, "Results should contain 'matches' key"
+        assert len(comparison_results['matches']) == 1, "Exactly one face match should be found"
+        assert comparison_results['matches'][0]['person'] == 'reference_person_1', "Should match with reference_person_1"

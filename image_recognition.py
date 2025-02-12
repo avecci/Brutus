@@ -1,93 +1,16 @@
 """Feature to return image attributes using AWS Rekognition"""
-import logging
-from logging.handlers import RotatingFileHandler
-from pythonjsonlogger.json import JsonFormatter
 from pathlib import Path
-import uuid
+import io
+import os
+import json
+from logging_utils import setup_logger
 import boto3
+import botocore
 from botocore.exceptions import ClientError
 from PIL import Image, ImageDraw, ImageFont, ExifTags
 
 
-class RequestIdFilter(logging.Filter):
-    def filter(self, record):
-        if not hasattr(record, "request_id"):
-            record.request_id = "-"
-        return True
-
-
-def setup_logger():
-    """Configure logging with rotating file handler and console output in JSON format"""
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-
-    # Create logs directory if it doesn't exist
-    Path("./logs").mkdir(exist_ok=True)
-
-    # Create JSON formatter
-    class CustomJsonFormatter(JsonFormatter):
-        def add_fields(self, log_record, record, message_dict):
-            super().add_fields(log_record, record, message_dict)
-            log_record["timestamp"] = record.created
-            log_record["level"] = record.levelname
-            log_record["logger"] = record.name
-
-            # Copy all extra fields
-            if hasattr(record, "__dict__"):
-                for key, value in record.__dict__.items():
-                    if key not in [
-                        "args",
-                        "asctime",
-                        "created",
-                        "exc_info",
-                        "exc_text",
-                        "filename",
-                        "funcName",
-                        "levelname",
-                        "levelno",
-                        "lineno",
-                        "module",
-                        "msecs",
-                        "msg",
-                        "name",
-                        "pathname",
-                        "process",
-                        "processName",
-                        "relativeCreated",
-                        "stack_info",
-                        "thread",
-                        "threadName",
-                    ]:
-                        log_record[key] = value
-
-    formatter = CustomJsonFormatter(
-        "%(timestamp)s %(level)s %(logger)s %(request_id)s %(message)s"
-    )
-
-    # Rotating file handler
-    file_handler = RotatingFileHandler(
-        "./logs/brutus.log", maxBytes=1024 * 1024, backupCount=3  # 1MB
-    )
-    file_handler.setFormatter(formatter)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-
-    # Add the filter to both handlers
-    request_id_filter = RequestIdFilter()
-    file_handler.addFilter(request_id_filter)
-    console_handler.addFilter(request_id_filter)
-
-    # Add handlers to logger
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-    return logger
-
-
-logger = setup_logger()
-
+logger = setup_logger(__name__)
 
 class ImageAnalyzer:
     def __init__(self):
@@ -98,925 +21,388 @@ class ImageAnalyzer:
             logger.error("Failed to initialize client", exc_info=True)
             raise
 
-    def analyze_image_file(self, image_path, max_labels=30, save_path=None):
-        """Analyze a local image file"""
-        request_id = str(uuid.uuid4())
-        extra = {
-            "request_id": request_id,
-            "metadata": {
-                "image_path": image_path,
-                "max_labels": max_labels,
-                "save_path": save_path,
-            },
-        }
-        logger.info("Starting image analysis", extra=extra)
+    @staticmethod
+    def _source_image(image_path):
+        """
+        Load and return an image with correct orientation based on EXIF data.
+        This ensures consistent orientation whether image was taken in 
+        portrait or landscape mode.
+
+        Args:
+            image_path (str): Path to the source image file
+
+        Returns:
+            bytes: Image bytes with correct orientation
+        """
+        image = Image.open(image_path)
 
         try:
-            with open(image_path, "rb") as image:
-                image_bytes = image.read()
-                results = self.detect_labels_in_image(image_bytes, max_labels)
-            if save_path:
-                logger.info(
-                    "Drawing bounding boxes",
-                    extra={"request_id": request_id, "output_path": save_path},
-                )
-                self.draw_bounding_boxes(image_path, results, save_path)
+            # Get EXIF data if available
+            exif = image._getexif()
+            if exif is not None:
+                # Check orientation tag (274) and rotate accordingly
+                orientation = exif.get(274)
+                if orientation:
+                    rotate_values = {
+                        3: 180,
+                        6: 270,
+                        8: 90
+                    }
+                    if orientation in rotate_values:
+                        image = image.rotate(rotate_values[orientation], expand=True)
+        except (AttributeError, KeyError, IndexError):
+            # If EXIF data is invalid or missing, continue with original image
+            pass
+        
+        # Convert PIL Image to bytes
+        with io.BytesIO() as bio:
+            image.save(bio, format='JPEG')
+            return bio.getvalue()
 
-            logger.info(
-                "Image analysis completed",
-                extra={"request_id": request_id, "results": results},
+    def detect_labels_in_image(self, image_path, min_confidence=90):
+        """
+        Detect labels (objects, events) in the image.
+
+        Args:
+            image_path (str): Path to the image file
+            min_confidence (int): Minimum confidence percentage (0-100) for label detection
+
+        Returns:
+            dict: Results containing:
+                - labels_found: number of labels detected
+                - labels: list of detected labels with confidence scores
+                - error: error message if detection fails
+        """
+        logger.info(
+            "Starting label detection",
+            extra={
+                "params": {
+                    "image_path": str(image_path),
+                    "min_confidence": min_confidence
+                }
+            }
+        )
+
+        try:
+            image_bytes = self._source_image(image_path)
+            response = self.rekognition_client.detect_labels(
+                Image={"Bytes": image_bytes},
+                MinConfidence=min_confidence
             )
-            return results
-        except FileNotFoundError:
-            logger.error(
-                "File not found",
-                extra={
-                    "request_id": request_id,
-                    "error": {"type": "FileNotFoundError", "path": image_path},
-                },
-            )
+
+            # Process labels and add instance numbers
+            processed_labels = []
+            instance_counter = 1  # Global counter for all instances across all labels
+
+            for label in response['Labels']:
+                processed_label = {
+                    'Name': label['Name'],
+                    'Confidence': label['Confidence']
+                }
+
+                # Process instances if they exist
+                if 'Instances' in label and label['Instances']:
+                    processed_instances = []
+                    for instance in label['Instances']:
+                        processed_instance = {
+                            'BoundingBox': instance['BoundingBox'],
+                            'Confidence': instance['Confidence'],
+                            'label_number': instance_counter
+                        }
+                        processed_instances.append(processed_instance)
+                        instance_counter += 1
+                    processed_label['Instances'] = processed_instances
+                else:
+                    processed_label['Instances'] = []
+
+                processed_labels.append(processed_label)
+
+            return processed_labels
+
         except Exception as e:
-            logger.error(
-                "Error processing image",
-                extra={
-                    "request_id": request_id,
-                    "error": {"type": type(e).__name__, "message": str(e)},
-                },
-                exc_info=True,
-            )
+            logger.error(f"Error detecting labels: {str(e)}")
+            raise
 
-    def detect_face_details(self, image_bytes, request_id=None):
+        except botocore.exceptions.ClientError as e:
+            error_details = {
+                "error": {
+                    "type": "AWS Error",
+                    "message": str(e)
+                }
+            }
+            logger.error("AWS Rekognition error", extra=error_details)
+            return error_details
+
+    def detect_and_return_face_details(self, image_path):
         """
-        Detect face details in an image.
-        Response includes details about:
-        - Age Range (min/max)
-        - Smile (boolean + confidence)
-        - Eyeglasses/Sunglasses
-        - Facial Hair
-        - Gender
-        - Emotions (happy, sad, angry, etc.)
-        - Eye Open/Closed
-        - Mouth Open/Closed
-        - Quality (brightness, sharpness)
-        - Pose (pitch, roll, yaw)
+        Detect face details in an image and return structured analysis.
+
+        Args:
+            image_path (str): Path to the image file to analyze
+
+        Returns:
+            dict: Structured face analysis containing:
+                - faces_found: number of faces detected
+                - analysis_details: 
+                    dict with age_range, 
+                    gender, 
+                    primary_emotion
         """
-        request_id = request_id or str(uuid.uuid4())
-        extra = {"request_id": request_id}
 
-        logger.info("Starting face detection", extra=extra)
-
+        logger.info("Starting face detection")
         try:
             response = self.rekognition_client.detect_faces(
-                Image={"Bytes": image_bytes},
-                Attributes=["ALL"],  # or ['DEFAULT'] for basic attributes
+                Image={"Bytes": self._source_image(image_path)},
+                Attributes=["ALL"]
             )
 
             faces = response.get("FaceDetails", [])
 
-            # Log results with structured format
-            for idx, face in enumerate(faces):
-                logger.info(
-                    "Face detection completed",
-                    extra={
-                        "request_id": request_id,
-                        "detection_results": {
-                            "faces_found": len(faces),
-                            "analysis_details": {
-                                "age_range": face.get("AgeRange", {}),
-                                "gender": face.get("Gender", {}).get("Value"),
-                                "primary_emotion": face.get("Emotions", [{}])[0].get(
-                                    "Type"
-                                ),
-                            },
-                        },
-                    },
-                )
+            # Process and return structured results
+            face_analyses = []
+            for face_number, face in enumerate(response['FaceDetails'], 1):
+                emotions = face.get("Emotions", [])
+                primary_emotion = emotions[0] if emotions else {}
+                box = face['BoundingBox']
 
-            return faces
+                face_analysis = {
+                    "age_range": face.get("AgeRange", {}),
+                    "gender": face.get("Gender", {}).get("Value"),
+                    "primary_emotion": primary_emotion.get("Type"),
+                    "emotion_confidence": primary_emotion.get("Confidence"),
+                    'face_number': face_number,
+                    'BoundingBox': box
+                }
+                face_analyses.append(face_analysis)
+
+            result = {
+                "faces_found": len(faces),
+                "faces": face_analyses
+            }
+            
+            logger.info(
+            "Face detection completed",
+            extra={"results": json.dumps(result)}
+            )
+            
+            return result
+
         except Exception as e:
+            error_msg = str(e)
             logger.error(
                 "Face detection failed",
-                extra={
-                    "request_id": request_id,
-                    "error": {"type": type(e).__name__, "message": str(e)},
-                },
-                exc_info=True,
+                extra={"error": error_msg}
             )
-            raise
+            return {"error": error_msg}
 
     def compare_faces_with_library(
-        self, target_image_path, library_folder, similarity_threshold=80
-    ):
+            self, target_image_path, library_folder, similarity_threshold=80):
         """
-        Compare faces in target image with library of reference images
-        """
-        request_id = str(uuid.uuid4())
-        metadata = {
-            "request_id": request_id,
-            "comparison_params": {
-                "target_image": target_image_path,
-                "library_folder": library_folder,
-                "similarity_threshold": similarity_threshold,
-            },
-        }
-        logger.info("Starting face comparison", extra=metadata)
-
-        try:
-            with open(target_image_path, "rb") as target_file:
-                target_bytes = target_file.read()
-
-            face_response = self.rekognition_client.detect_faces(
-                Image={"Bytes": target_bytes}, Attributes=["DEFAULT"]
-            )
-
-            if not face_response["FaceDetails"]:
-                logger.info(
-                    "No faces detected in target image",
-                    extra={
-                        "request_id": request_id,
-                        "target_analysis": {
-                            "image_path": target_image_path,
-                            "faces_found": 0,
-                        },
-                    },
-                )
-                return {"error": "No faces detected in target image"}
-
-            face_count = len(face_response["FaceDetails"])
-            logger.info(
-                "Faces found in target image",
-                extra={
-                    "request_id": request_id,
-                    "target_analysis": {
-                        "image_path": target_image_path,
-                        "faces_found": face_count,
-                    },
-                },
-            )
-
-            matches = []
-            for face_index, target_face in enumerate(face_response["FaceDetails"]):
-                target_box = target_face["BoundingBox"]
-                face_metadata = {
-                    "request_id": request_id,
-                    "face_analysis": {
-                        "face_index": face_index + 1,
-                        "total_faces": face_count,
-                        "location": target_box,
-                        "confidence": target_face["Confidence"],
-                    },
-                }
-                logger.info("Analyzing face", extra=face_metadata)
-
-                best_match = {
-                    "face_number": face_index + 1,
-                    "person_name": "Unknown",
-                    "similarity": 0,
-                    "confidence": target_face["Confidence"],
-                    "location": target_box,
-                }
-
-                for ref_image_path in Path(library_folder).glob("*.jpg"):
-                    person_name = ref_image_path.stem
-                    comparison_metadata = {
-                        "request_id": request_id,
-                        "comparison_details": {
-                            "face_index": face_index + 1,
-                            "person_name": person_name,
-                            "reference_image": str(ref_image_path),
-                        },
-                    }
-                    logger.info(
-                        "Comparing with reference image", extra=comparison_metadata
-                    )
-
-                    try:
-                        with open(ref_image_path, "rb") as ref_file:
-                            ref_bytes = ref_file.read()
-
-                        compare_response = self.rekognition_client.compare_faces(
-                            SourceImage={"Bytes": ref_bytes},
-                            TargetImage={"Bytes": target_bytes},
-                            SimilarityThreshold=similarity_threshold,
-                            QualityFilter="LOW",
-                        )
-
-                        if not compare_response.get("FaceMatches"):
-                            logger.info(
-                                "No match found",
-                                extra={
-                                    "request_id": request_id,
-                                    "comparison_result": {
-                                        "face_index": face_index + 1,
-                                        "person_name": person_name,
-                                        "match_found": False,
-                                    },
-                                },
-                            )
-                            continue
-
-                        for match in compare_response["FaceMatches"]:
-                            similarity = match["Similarity"]
-                            match_box = match["Face"]["BoundingBox"]
-
-                            match_metadata = {
-                                "request_id": request_id,
-                                "match_details": {
-                                    "face_index": face_index + 1,
-                                    "person_name": person_name,
-                                    "similarity": f"{similarity:.2f}%",
-                                    "location": match_box,
-                                    "confidence": f"{match['Face']['Confidence']:.2f}%",
-                                },
-                            }
-                            logger.info("Match found", extra=match_metadata)
-
-                            if similarity > best_match["similarity"]:
-                                match_info = {
-                                    "person_name": person_name,
-                                    "similarity": similarity,
-                                    "confidence": match["Face"]["Confidence"],
-                                    "location": match_box,
-                                }
-                                best_match.update(match_info)
-                                logger.info(
-                                    "New best match found",
-                                    extra={
-                                        "request_id": request_id,
-                                        "best_match": match_info,
-                                    },
-                                )
-
-                    except Exception as e:
-                        logger.error(
-                            "Error in face comparison",
-                            extra={
-                                "request_id": request_id,
-                                "error": {
-                                    "type": type(e).__name__,
-                                    "message": str(e),
-                                    "details": {
-                                        "face_index": face_index + 1,
-                                        "person_name": person_name,
-                                        "reference_image": str(ref_image_path),
-                                    },
-                                },
-                            },
-                            exc_info=True,
-                        )
-                        continue
-
-                matches.append(best_match)
-
-            results = {"matches": matches, "error": None}
-
-            logger.info(
-                "Face comparison completed",
-                extra={
-                    "request_id": request_id,
-                    "comparison_summary": {
-                        "total_faces_analyzed": face_count,
-                        "matches_found": len(matches),
-                        "results": results,
-                    },
-                },
-            )
-            return results
-
-        except Exception as e:
-            error_info = {
-                "request_id": request_id,
-                "error": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "details": {
-                        "target_image": target_image_path,
-                        "library_folder": library_folder,
-                    },
-                },
-            }
-            logger.error("Face comparison failed", extra=error_info, exc_info=True)
-            return {"error": str(e)}
-
-    def _is_same_face(self, box1, box2, tolerance=0.1):
-        """
-        Check if two bounding boxes refer to the same face
+        Compare faces in image with library of reference images.
 
         Args:
-            box1 (dict): First bounding box
-            box2 (dict): Second bounding box
-            tolerance (float): Maximum allowed difference in coordinates
+            target_image_path (str): Path to the target image file
+            library_folder (str): Path to folder containing reference images
+            similarity_threshold (int): Minimum similarity percentage (0-100) to consider a match
 
         Returns:
-            bool: True if boxes likely refer to same face
+            dict: Results containing:
+                - matches_found: number of people identified
+                - matches: list of identified people with their confidence scores
         """
-        return (
-            abs(box1["Left"] - box2["Left"]) < tolerance
-            and abs(box1["Top"] - box2["Top"]) < tolerance
-            and abs(box1["Width"] - box2["Width"]) < tolerance
-            and abs(box1["Height"] - box2["Height"]) < tolerance
+        logger.info(
+            "Starting face comparison",
+            extra={
+                "target_image": str(target_image_path),
+                "library_folder": str(library_folder),
+                "similarity_threshold": similarity_threshold
+            }
         )
 
-    def draw_identified_faces(self, image_path, matches, save_path):
-        """
-        Draw boxes and labels around identified faces in the image
-        Args:
-            image_path: Path to the original image
-            matches: List of face matches with person names and locations
-            save_path: Path where to save the annotated image
-        """
-        request_id = str(uuid.uuid4())
-        metadata = {
-            "request_id": request_id,
-            "drawing_params": {
-                "input_image": image_path,
-                "output_image": save_path,
-                "faces_to_draw": len(matches),
-            },
-        }
-        logger.info("Starting to draw identified faces", extra=metadata)
-
-        try:
-            # Open and prepare image
-            image = Image.open(image_path)
-
-            # Correct image orientation if needed
+        # Get and orient target image, then detect faces
+        target_image_bytes = self._source_image(target_image_path)
+        target_faces = self.rekognition_client.detect_faces(
+            Image={"Bytes": target_image_bytes},
+            Attributes=["DEFAULT"]
+        )
+        if not target_faces["FaceDetails"]:
+            logger.info("No faces detected", 
+                        extra={"image_path": str(target_image_path)})
+            return {"error": "No faces detected"}
+        # Dictionary to store best match for each reference person
+        best_matches = {}
+        # Get all image files from reference library folder
+        library_images = [f for f in os.listdir(library_folder) 
+                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        for library_image in library_images:
+            library_image_path = os.path.join(library_folder, library_image)
+            person_name = os.path.splitext(library_image)[0] # Extract person name from filename
             try:
-                for orientation in ExifTags.TAGS.keys():
-                    if ExifTags.TAGS[orientation] == "Orientation":
-                        break
-                exif = image._getexif()
-                if exif is not None and orientation in exif:
-                    logger.info(
-                        "Correcting image orientation",
-                        extra={
-                            "request_id": request_id,
-                            "orientation": {
-                                "original": exif[orientation],
-                                "image_path": image_path,
-                            },
-                        },
-                    )
-                    self._correct_image_orientation(image, exif[orientation])
-            except Exception as e:
-                logger.warning(
-                    "Could not process EXIF data",
-                    extra={
-                        "request_id": request_id,
-                        "error": {
-                            "type": type(e).__name__,
-                            "message": str(e),
-                            "image_path": image_path,
-                        },
-                    },
+                library_image_bytes = self._source_image(library_image_path)
+                comparison = self.rekognition_client.compare_faces(
+                    SourceImage={"Bytes": library_image_bytes},
+                    TargetImage={"Bytes": target_image_bytes},
+                    SimilarityThreshold=similarity_threshold
                 )
-
-            draw = ImageDraw.Draw(image)
-            image_width, image_height = image.size
-            font = ImageFont.load_default()
-
-            for idx, match in enumerate(matches, 1):
-                try:
-                    # Extract face information
-                    box = match["location"]
-                    person_name = match["person_name"]
-                    similarity = match.get("similarity", 0)
-                    confidence = match.get("confidence", 0)
-
-                    # Calculate pixel coordinates
-                    left = int(box["Left"] * image_width)
-                    top = int(box["Top"] * image_height)
-                    width = int(box["Width"] * image_width)
-                    height = int(box["Height"] * image_height)
-
-                    # Draw rectangle
-                    draw.rectangle(
-                        [(left, top), (left + width, top + height)],
-                        outline="green",
-                        width=2,
-                    )
-
-                    # Prepare label text
-                    label = f"{person_name} ({similarity:.1f}%)"
-
-                    # Draw label background and text
-                    text_bbox = draw.textbbox((left, top - 25), label, font=font)
-                    draw.rectangle([text_bbox], fill="green")
-                    draw.text((left, top - 25), label, fill="white", font=font)
-
-                    logger.info(
-                        "Drew face box and label",
-                        extra={
-                            "request_id": request_id,
-                            "face_drawing": {
-                                "index": idx,
-                                "person_name": person_name,
-                                "similarity": f"{similarity:.1f}%",
-                                "confidence": f"{confidence:.1f}%",
-                                "location": {
-                                    "left": left,
-                                    "top": top,
-                                    "width": width,
-                                    "height": height,
-                                },
-                            },
-                        },
-                    )
-
-                except Exception as e:
-                    logger.error(
-                        "Error drawing individual face",
-                        extra={
-                            "request_id": request_id,
-                            "error": {
-                                "type": type(e).__name__,
-                                "message": str(e),
-                                "face_index": idx,
-                                "person_name": person_name,
-                            },
-                        },
-                        exc_info=True,
-                    )
-                    continue
-
-            # Save the annotated image
-            try:
-                image.save(save_path)
-                logger.info(
-                    "Successfully saved annotated image",
-                    extra={
-                        "request_id": request_id,
-                        "save_details": {
-                            "output_path": save_path,
-                            "faces_drawn": len(matches),
-                            "image_size": {
-                                "width": image_width,
-                                "height": image_height,
-                            },
-                        },
-                    },
-                )
-
-            except Exception as e:
-                logger.error(
-                    "Failed to save annotated image",
-                    extra={
-                        "request_id": request_id,
-                        "error": {
-                            "type": type(e).__name__,
-                            "message": str(e),
-                            "output_path": save_path,
-                        },
-                    },
-                    exc_info=True,
-                )
-                raise
-
-        except Exception as e:
-            logger.error(
-                "Failed to draw identified faces",
-                extra={
-                    "request_id": request_id,
-                    "error": {
-                        "type": type(e).__name__,
-                        "message": str(e),
-                        "input_image": image_path,
-                        "output_image": save_path,
-                    },
-                },
-                exc_info=True,
-            )
-            raise
-
-    def _correct_image_orientation(self, image):
-        """
-        Correct image orientation based on EXIF data
-        """
-        try:
-            # Get EXIF data
-            for orientation in ExifTags.TAGS.keys():
-                if ExifTags.TAGS[orientation] == "Orientation":
-                    break
-
-            exif = image._getexif()
-            if exif is not None:
-                if orientation in exif:
-                    if exif[orientation] == 3:
-                        image = image.rotate(180, expand=True)
-                    elif exif[orientation] == 6:
-                        image = image.rotate(270, expand=True)
-                    elif exif[orientation] == 8:
-                        image = image.rotate(90, expand=True)
-
-            return image
-        except (AttributeError, KeyError, IndexError, TypeError):
-            # If there's no EXIF data or other issues, return original image
-            return image
-
-    def draw_bounding_boxes(self, image_path, results, save_path):
-        """
-        Draw bounding boxes on the image for detected objects
-        Args:
-            image_path: Path to the original image
-            results: Dictionary containing detection results
-            save_path: Path where to save the annotated image
-        """
-        request_id = str(uuid.uuid4())
-        metadata = {
-            "request_id": request_id,
-            "drawing_params": {
-                "input_image": image_path,
-                "output_image": save_path,
-                "detection_counts": {
-                    "people": len(results.get("people", [])),
-                    "animals": len(results.get("animals", [])),
-                    "objects": len(results.get("objects", [])),
-                },
-            },
-        }
-        logger.info("Starting to draw bounding boxes", extra=metadata)
-
-        try:
-            # Open and prepare image
-            image = Image.open(image_path)
-            draw = ImageDraw.Draw(image)
-            width, height = image.size
-            font = ImageFont.load_default()
-
-            # Draw boxes for people (red)
-            for person in results.get("people", []):
-                if "bounding_box" in person and person["bounding_box"]:
-                    box = person["bounding_box"]
-                    self._draw_single_box(
-                        draw,
-                        box,
-                        width,
-                        height,
-                        "Person",
-                        person["confidence"],
-                        "red",
-                        font,
-                        request_id,
-                    )
-
-            # Draw boxes for animals (blue)
-            for animal in results.get("animals", []):
-                if "bounding_box" in animal and animal["bounding_box"]:
-                    box = animal["bounding_box"]
-                    self._draw_single_box(
-                        draw,
-                        box,
-                        width,
-                        height,
-                        animal["name"],
-                        animal["confidence"],
-                        "blue",
-                        font,
-                        request_id,
-                    )
-
-            # Draw boxes for other objects (green)
-            for obj in results.get("objects", []):
-                if "bounding_box" in obj and obj["bounding_box"]:
-                    box = obj["bounding_box"]
-                    self._draw_single_box(
-                        draw,
-                        box,
-                        width,
-                        height,
-                        obj["name"],
-                        obj["confidence"],
-                        "green",
-                        font,
-                        request_id,
-                    )
-
-            # Save the annotated image
-            image.save(save_path)
-            logger.info(
-                "Successfully saved annotated image",
-                extra={
-                    "request_id": request_id,
-                    "save_details": {
-                        "output_path": save_path,
-                        "image_size": {"width": width, "height": height},
-                    },
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Failed to draw bounding boxes",
-                extra={
-                    "request_id": request_id,
-                    "error": {
-                        "type": type(e).__name__,
-                        "message": str(e),
-                        "input_image": image_path,
-                        "output_image": save_path,
-                    },
-                },
-                exc_info=True,
-            )
-            raise
-
-    def _draw_single_box(
-        self,
-        draw,
-        box,
-        image_width,
-        image_height,
-        label,
-        confidence,
-        color,
-        font,
-        request_id,
-    ):
-        """Helper method to draw a single bounding box with label"""
-        try:
-            # Ensure box coordinates are valid
-            if not box or not all(
-                key in box for key in ["Left", "Top", "Width", "Height"]
-            ):
-                logger.warning(
-                    "Invalid box format",
-                    extra={"request_id": request_id, "box_data": box},
-                )
-                return
-
-            # Calculate pixel coordinates with bounds checking
-            left = max(0, int(box["Left"] * image_width))
-            top = max(0, int(box["Top"] * image_height))
-            width = min(int(box["Width"] * image_width), image_width - left)
-            height = min(int(box["Height"] * image_height), image_height - top)
-            right = left + width
-            bottom = top + height
-
-            # Ensure coordinates are valid
-            if left >= right or top >= bottom:
-                logger.warning(
-                    "Invalid box dimensions",
-                    extra={
-                        "request_id": request_id,
-                        "dimensions": {
-                            "left": left,
-                            "right": right,
-                            "top": top,
-                            "bottom": bottom,
-                        },
-                    },
-                )
-                return
-
-            # Draw rectangle
-            draw.rectangle([(left, top), (right, bottom)], outline=color, width=2)
-
-            # Prepare label text
-            label_text = f"{label} ({confidence:.1f}%)"
-
-            # Calculate text position (ensure it's within image bounds)
-            text_y = max(
-                0, top - 25
-            )  # Move text up by 25 pixels, but not outside image
-
-            # Draw label background and text
-            text_bbox = draw.textbbox((left, text_y), label_text, font=font)
-            # Ensure text background stays within image bounds
-            text_bbox = list(text_bbox)  # Convert to list to modify
-            text_bbox[0] = max(0, text_bbox[0])  # x1
-            text_bbox[1] = max(0, text_bbox[1])  # y1
-            text_bbox[2] = min(image_width, text_bbox[2])  # x2
-            text_bbox[3] = min(image_height, text_bbox[3])  # y2
-
-            draw.rectangle(text_bbox, fill=color)
-            draw.text((left, text_y), label_text, fill="white", font=font)
-
-            logger.debug(
-                "Successfully drew box",
-                extra={
-                    "request_id": request_id,
-                    "box_details": {
-                        "label": label,
-                        "confidence": f"{confidence:.1f}%",
-                        "position": {
-                            "left": left,
-                            "top": top,
-                            "width": width,
-                            "height": height,
-                        },
-                    },
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Error drawing single box",
-                extra={
-                    "request_id": request_id,
-                    "error": {
-                        "type": type(e).__name__,
-                        "message": str(e),
-                        "box": box,
-                        "label": label,
-                        "dimensions": {
-                            "image_width": image_width,
-                            "image_height": image_height,
-                        },
-                    },
-                },
-                exc_info=True,
-            )
-
-    def detect_labels_in_image(self, image_bytes, max_labels=30):
-        """
-        Detect labels in the image using AWS Rekognition
-        Args:
-            image_bytes: Binary image data
-            max_labels: Maximum number of labels to return
-        Returns:
-            Dictionary containing detected labels and objects
-        """
-        request_id = str(uuid.uuid4())
-        metadata = {
-            "request_id": request_id,
-            "detection_params": {
-                "max_labels": max_labels,
-                "image_size_bytes": len(image_bytes),
-            },
-        }
-        logger.info("Starting label detection", extra=metadata)
-
-        try:
-            # First detect faces to get accurate person count and locations
-            face_response = self.rekognition_client.detect_faces(
-                Image={"Bytes": image_bytes}, Attributes=["DEFAULT"]
-            )
-
-            # Then get general labels
-            label_response = self.rekognition_client.detect_labels(
-                Image={"Bytes": image_bytes},
-                MaxLabels=max_labels,
-                Features=["GENERAL_LABELS", "IMAGE_PROPERTIES"],
-            )
-
-            # Process the responses
-            results = {
-                "people": [],
-                "animals": [],
-                "objects": [],
-                "image_properties": {},
-            }
-
-            # Add face detections as people
-            for face in face_response.get("FaceDetails", []):
-                if face.get("Confidence", 0) > 80:  # Confidence threshold
-                    results["people"].append(
-                        {
-                            "name": "Person",
-                            "confidence": face["Confidence"],
-                            "bounding_box": face["BoundingBox"],
+                face_matches = comparison.get("FaceMatches", [])
+                if face_matches:
+                    best_match = max(face_matches, key=lambda x: x["Similarity"])
+                    # Update best match if this is the highest similarity for this person
+                    if person_name not in best_matches or \
+                       best_match["Similarity"] > best_matches[person_name]["similarity"]:
+                        best_matches[person_name] = {
+                            "similarity": best_match["Similarity"],
+                            "confidence": best_match["Face"]["Confidence"]
                         }
-                    )
+            except self.rekognition_client.exceptions.InvalidParameterException:
+                logger.warning(
+                "Invalid reference image",
+                extra={"image_path": str(library_image_path)}
+                )
+                continue
+        identified_people = [
+            {
+                "person": person_name,
+                "similarity": match_info["similarity"],
+                "confidence": match_info["confidence"]
+            }
+            for person_name, match_info in best_matches.items()
+        ]
+        result = {
+            "matches_found": len(identified_people),
+            "matches": identified_people
+        }
+        logger.info(
+            "Face comparison completed",
+            extra={"results": result}
+        )
+        return result
 
-            # Process general labels
-            for label in label_response.get("Labels", []):
-                label_name = label["Name"]
+    def draw_bounding_boxes(self, image_path, known_faces_dir):
+        """
+        Draw bounding boxes on image for all detected objects and faces
+        Gets detection results by calling class methods
+        Colors: 
+            - Red for unrecognized faces
+            - Orange for recognized faces
+            - Blue for animals
+            - Green for other objects (only if no humans/animals present)
+        Args:
+            image_path: Path to the image file
+            known_faces_dir: Directory containing reference face images
+        Returns:
+            PIL Image with bounding boxes drawn
+        """
+        # Create drawing object
+        image = Image.open(image_path)
+        draw = ImageDraw.Draw(image)
+        width, height = image.size
+        font = ImageFont.load_default()
 
-                # Skip person labels as we already handled faces
-                if label_name.lower() == "person":
-                    continue
+        # Get all detection results
+        faces = self.detect_and_return_face_details(image_path)
+        comparison_results = self.compare_faces_with_library(image_path, known_faces_dir)
+        labels = self.detect_labels_in_image(image_path)
 
-                # Categorize the label
-                category = "objects"  # Default category
-                if any(
-                    animal in label_name.lower()
-                    for animal in ["animal", "pet", "dog", "cat"]
-                ):
-                    category = "animals"
+        # Check if there are any humans or animals in the image
+        has_humans = faces and "error" not in faces and 'faces' in faces and len(faces['faces']) > 0
+        has_animals = any(
+            label['Name'] in ['Animal', 'Pet', 'Dog', 'Cat', 'Bird'] 
+            for label in labels if 'Instances' in label and label['Instances']
+        )
 
-                # Add instances with bounding boxes
-                for instance in label.get("Instances", []):
-                    if instance.get("Confidence", 0) > 80:  # Confidence threshold
-                        results[category].append(
-                            {
-                                "name": label_name,
-                                "confidence": instance["Confidence"],
-                                "bounding_box": instance["BoundingBox"],
-                            }
+        # First handle faces if present
+        if has_humans:
+            # Get recognized faces info
+            recognized_faces = {}
+            if (comparison_results and "error" not in comparison_results and 
+                'matches' in comparison_results and comparison_results['matches']):
+
+                # For each recognized person, get their face match details
+                for match in comparison_results['matches']:
+                    source_image = os.path.join(known_faces_dir, f"{match['person']}.jpg")
+                    try:
+                        face_matches = self.rekognition_client.compare_faces(
+                            SourceImage={'Bytes': self._source_image(source_image)},
+                            TargetImage={'Bytes': self._source_image(image_path)},
+                            SimilarityThreshold=80
                         )
 
-            logger.info(
-                "Label detection completed",
-                extra={
-                    "request_id": request_id,
-                    "detection_results": {
-                        "people_count": len(results["people"]),
-                        "animal_count": len(results["animals"]),
-                        "object_count": len(results["objects"]),
-                    },
-                },
-            )
+                        # Store the bounding box of the matched face
+                        if face_matches['FaceMatches']:
+                            matched_face = face_matches['FaceMatches'][0]['Face']
+                            recognized_faces[str(matched_face['BoundingBox'])] = match['person']
+                    except Exception as e:
+                        logger.error(f"Error comparing faces: {str(e)}")
+                        continue
 
-            return results
+            # Draw boxes for all faces
+            for face in faces['faces']:
+                box = face['BoundingBox']
+                box_str = str(box)
 
-        except Exception as e:
-            logger.error(
-                "Error in label detection",
-                extra={
-                    "request_id": request_id,
-                    "error": {"type": type(e).__name__, "message": str(e)},
-                },
-                exc_info=True,
-            )
-            raise
+                # Convert normalized coordinates to pixel values
+                left = width * box['Left']
+                top = height * box['Top']
+                right = left + (width * box['Width'])
+                bottom = top + (height * box['Height'])
 
-    def _process_response(self, response):
-        """
-        Process the response from Rekognition API
-        Args:
-            response: Raw response from Rekognition API
-        Returns:
-            Processed results dictionary
-        Raises:
-            ValueError: If response format is invalid
-        """
-        request_id = str(uuid.uuid4())
-
-        try:
-            # Validate response structure
-            if "Labels" not in response:
-                raise ValueError("Invalid response format: 'Labels' key missing")
-
-            logger.debug(
-                "Processing Rekognition response",
-                extra={
-                    "request_id": request_id,
-                    "response_metadata": {
-                        "label_count": len(response.get("Labels", [])),
-                        "has_image_properties": "ImageProperties" in response,
-                    },
-                },
-            )
-
-            results = {
-                "people": [],
-                "animals": [],
-                "objects": [],
-                "image_properties": {},
-            }
-
-            # Process labels
-            for label in response["Labels"]:  # Will raise KeyError if Labels is missing
-                if (
-                    not isinstance(label, dict)
-                    or "Name" not in label
-                    or "Confidence" not in label
-                ):
-                    raise ValueError("Invalid label format in response")
-
-                label_info = {
-                    "name": label["Name"],
-                    "confidence": label["Confidence"],
-                    "bounding_box": label.get("Instances", [{}])[0].get(
-                        "BoundingBox", {}
-                    )
-                    if label.get("Instances")
-                    else {},
-                }
-
-                # Categorize the label
-                if label["Name"] == "Person":
-                    results["people"].append(label_info)
-                elif label["Name"] in ["Animal", "Pet", "Dog", "Cat"]:
-                    results["animals"].append(label_info)
+                if box_str in recognized_faces:
+                    # Draw orange box for recognized face
+                    draw.rectangle([left, top, right, bottom], 
+                                 outline='orange', width=3)
+                    # Add face number and name
+                    text = f"{face['face_number']}-{recognized_faces[box_str]}"
+                    draw.text((left, top-20), text, 
+                             fill='orange', font=font)
                 else:
-                    results["objects"].append(label_info)
+                    # Draw red box for unrecognized face
+                    draw.rectangle([left, top, right, bottom], 
+                                 outline='red', width=2)
+                    draw.text((left, top-20), str(face['face_number']), 
+                             fill='red', font=font)
 
-            logger.debug(
-                "Processed labels categorized",
-                extra={
-                    "request_id": request_id,
-                    "categorization_results": {
-                        "people_count": len(results["people"]),
-                        "animals_count": len(results["animals"]),
-                        "objects_count": len(results["objects"]),
-                    },
-                },
-            )
+        # Then handle animals if present and no humans
+        if has_animals:
+            for label in labels:
+                if ('Instances' in label and 
+                    label['Name'] in ['Animal', 'Pet', 'Dog', 'Cat', 'Bird']):
+                    for instance in label['Instances']:
+                        box = instance['BoundingBox']
 
-            return results
+                        # Convert normalized coordinates to pixel values
+                        left = width * box['Left']
+                        top = height * box['Top']
+                        right = left + (width * box['Width'])
+                        bottom = top + (height * box['Height'])
 
-        except Exception as e:
-            logger.error(
-                "Error processing Rekognition response",
-                extra={
-                    "request_id": request_id,
-                    "error": {
-                        "type": type(e).__name__,
-                        "message": str(e),
-                        "response_keys": list(response.keys()),
-                    },
-                },
-                exc_info=True,
-            )
-            raise
+                        # Draw blue box for animals
+                        draw.rectangle([left, top, right, bottom], 
+                                     outline='blue', width=2)
+                        if 'label_number' in instance:
+                            draw.text((left, top-20), str(instance['label_number']), 
+                                    fill='blue', font=font)
+
+        # Only draw other objects if no humans or animals are present
+        if not has_humans and not has_animals:
+            for label in labels:
+                if 'Instances' in label:
+                    for instance in label['Instances']:
+                        box = instance['BoundingBox']
+
+                        # Convert normalized coordinates to pixel values
+                        left = width * box['Left']
+                        top = height * box['Top']
+                        right = left + (width * box['Width'])
+                        bottom = top + (height * box['Height'])
+
+                        # Draw green box for other objects
+                        draw.rectangle([left, top, right, bottom], 
+                                     outline='green', width=2)
+                        if 'label_number' in instance:
+                            draw.text((left, top-20), str(instance['label_number']), 
+                                    fill='green', font=font)
+
+        return image
+
