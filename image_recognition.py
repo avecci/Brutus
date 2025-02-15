@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ExifTags
 logger = setup_logger(__name__)
 
 
-class BrutusSees:
+class BrutusEyes:
     """
     Class to acts as Brutus' eyes. Analyzes given image using AWS Rekognition.
     Returns labels for objects, human features and tells if it sees a recognised person in the image such as Master.
