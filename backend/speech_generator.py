@@ -1,5 +1,5 @@
 """Wrapper module to call AWS Polly with text and return audio file"""
-import os
+from typing import Optional
 import boto3
 from logging_utils import setup_logger
 from botocore.exceptions import BotoCoreError, ClientError
@@ -24,7 +24,7 @@ class BrutusSpeechGenerator:
         ... )
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize AWS Polly client"""
         try:
             self.polly_client = boto3.client("polly")
@@ -34,14 +34,28 @@ class BrutusSpeechGenerator:
             raise
 
     @staticmethod
-    def get_full_string_output(text, speech_rate) -> str:
-        """Add speech rate"""
+    def get_full_string_output(text: str, speech_rate: int) -> str:
+        """
+        Add speech rate to SSML text.
+
+        Args:
+            text: The text to be wrapped in SSML tags
+            speech_rate: The rate of speech (percentage)
+
+        Returns:
+            String with SSML tags and speech rate applied"""
         s = (f"<speak><prosody rate='{speech_rate}%'>", "</prosody></speak>")
         full_input_text = text.join(s)
         return full_input_text
 
-    def text_to_speech(self, input_text, output_file, speech_rate=85):
-        """Convert text to speech using AWS Polly
+    def text_to_speech(
+        self, input_text: str, output_file: str, speech_rate: int = 85
+    ) -> Optional[str]:
+        """Convert text to speech using AWS Polly.
+        This method takes input text and converts it to speech
+        using Matthew voice, and
+        saves the resulting audio as an MP3 file.
+
         Args:
             text (str): Text to convert to speech
             output_file (str): Path to save audio file
@@ -74,3 +88,4 @@ class BrutusSpeechGenerator:
                     return None
 
             return output_file
+        return None

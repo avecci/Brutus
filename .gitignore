@@ -27,12 +27,13 @@ share/python-wheels/
 MANIFEST
 
 #Brutus-specific
-input/
-reference_library/
-output/
-logs/
+backend/input/
+backend/reference_library/
+backend/output/
+backend/logs/
 *.log
 *.mp3
+*.wav
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
