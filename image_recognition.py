@@ -58,6 +58,37 @@ class BrutusSees:
             image.save(bio, format="JPEG")
             return bio.getvalue()
 
+    @staticmethod
+    def _get_overlap_ratio(box1, box2):
+        """Calculate intersection over union (IoU) of two bounding boxes"""
+        x1 = max(box1["Left"], box2["Left"])
+        y1 = max(box1["Top"], box2["Top"])
+        x2 = min(box1["Left"] + box1["Width"], box2["Left"] + box2["Width"])
+        y2 = min(box1["Top"] + box1["Height"], box2["Top"] + box2["Height"])
+
+        if x2 < x1 or y2 < y1:
+            return 0.0
+
+        intersection = (x2 - x1) * (y2 - y1)
+        box1_area = box1["Width"] * box1["Height"]
+        box2_area = box2["Width"] * box2["Height"]
+        union = box1_area + box2_area - intersection
+
+        return intersection / union if union > 0 else 0
+
+    @staticmethod
+    def _is_related_label(label1, label2):
+        """Check if labels are related through parent-child relationship"""
+        # Check if label2 is in label1's parents
+        for parent in label1.get("Parents", []):
+            if parent["Name"] == label2["Name"]:
+                return True
+        # Check if label1 is in label2's parents
+        for parent in label2.get("Parents", []):
+            if parent["Name"] == label1["Name"]:
+                return True
+        return False
+
     def detect_labels_in_image(self, image_path, min_confidence=90):
         """
         Detect labels (objects, events) in the image.
@@ -92,6 +123,7 @@ class BrutusSees:
                 processed_label = {
                     "Name": label["Name"],
                     "Confidence": label["Confidence"],
+                    "Parents": label.get("Parents", []),
                 }
 
                 if "Instances" in label and label["Instances"]:
@@ -110,6 +142,50 @@ class BrutusSees:
 
                 processed_labels.append(processed_label)
 
+            # Second pass: Consolidate related instances
+            consolidated_labels = []
+            processed_instances = set()
+
+            for label in processed_labels:
+                if not label["Instances"]:
+                    consolidated_labels.append(label)
+                    continue
+
+                for instance in label["Instances"]:
+                    instance_id = instance["label_number"]
+                    if instance_id in processed_instances:
+                        continue
+
+                    # Find related labels with overlapping bounding boxes
+                    related_labels = []
+                    for other_label in processed_labels:
+                        if not other_label["Instances"]:
+                            continue
+
+                        for other_instance in other_label["Instances"]:
+                            if (
+                                instance_id != other_instance["label_number"]
+                                and self._get_overlap_ratio(
+                                    instance["BoundingBox"],
+                                    other_instance["BoundingBox"],
+                                )
+                                > 0.5
+                                and self._is_related_label(label, other_label)
+                            ):
+                                related_labels.append(other_label["Name"])
+                                processed_instances.add(other_instance["label_number"])
+
+                    processed_instances.add(instance_id)
+
+                    # Create consolidated label
+                    consolidated_label = label.copy()
+                    if related_labels:
+                        consolidated_label["RelatedLabels"] = related_labels
+                    consolidated_label["Instances"] = [
+                        instance
+                    ]  # Keep only the current instance
+                    consolidated_labels.append(consolidated_label)
+
             logger.info(
                 "Labels detected:",
                 extra={
@@ -117,7 +193,7 @@ class BrutusSees:
                     "image_file": image_path,
                 },
             )
-            return processed_labels
+            return consolidated_labels
 
         except Exception as e:
             logger.error(f"Error detecting labels: {str(e)}")
@@ -158,6 +234,44 @@ class BrutusSees:
                 primary_emotion = emotions[0] if emotions else {}
                 box = face["BoundingBox"]
 
+                # Extract facial characteristics
+                characteristics = {
+                    "eyeglasses": {
+                        "value": face.get("Eyeglasses", {}).get("Value", False),
+                        "confidence": face.get("Eyeglasses", {}).get("Confidence", 0.0),
+                    },
+                    "sunglasses": {
+                        "value": face.get("Sunglasses", {}).get("Value", False),
+                        "confidence": face.get("Sunglasses", {}).get("Confidence", 0.0),
+                    },
+                    "beard": {
+                        "value": face.get("Beard", {}).get("Value", False),
+                        "confidence": face.get("Beard", {}).get("Confidence", 0.0),
+                    },
+                    "mustache": {
+                        "value": face.get("Mustache", {}).get("Value", False),
+                        "confidence": face.get("Mustache", {}).get("Confidence", 0.0),
+                    },
+                    "eyes_open": {
+                        "value": face.get("EyesOpen", {}).get("Value", False),
+                        "confidence": face.get("EyesOpen", {}).get("Confidence", 0.0),
+                    },
+                    "mouth_open": {
+                        "value": face.get("MouthOpen", {}).get("Value", False),
+                        "confidence": face.get("MouthOpen", {}).get("Confidence", 0.0),
+                    },
+                    "smile": {
+                        "value": face.get("Smile", {}).get("Value", False),
+                        "confidence": face.get("Smile", {}).get("Confidence", 0.0),
+                    },
+                    "face_occluded": {
+                        "value": face.get("FaceOccluded", {}).get("Value", False),
+                        "confidence": face.get("FaceOccluded", {}).get(
+                            "Confidence", 0.0
+                        ),
+                    },
+                }
+
                 face_analysis = {
                     "age_range": face.get("AgeRange", {}),
                     "gender": face.get("Gender", {}).get("Value"),
@@ -165,6 +279,7 @@ class BrutusSees:
                     "emotion_confidence": primary_emotion.get("Confidence"),
                     "face_number": face_number,
                     "BoundingBox": box,
+                    "characteristics": characteristics,
                 }
                 face_analyses.append(face_analysis)
 
