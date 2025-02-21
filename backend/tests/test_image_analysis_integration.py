@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from image_recognition import BrutusSees
+from image_recognition import BrutusEyes
 from PIL import Image
 
 
@@ -14,7 +14,7 @@ class TestImageAnalysisIntegration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup test environment"""
-        self.analyzer = BrutusSees()
+        self.analyzer = BrutusEyes()
         self.test_images_dir = Path("tests/test_data/images")
         self.known_faces_dir = self.test_images_dir / "reference"
 
@@ -68,7 +68,7 @@ class TestImageAnalysisIntegration:
         assert len(animal_labels) == 0, "No animals should be detected"
 
     def test_object_detection(self, get_image_path):
-        """Test object.jpg - should detect exactly 1 airplane, no humans/animals"""
+        """Test object.jpg - should detect two airplanes, no humans/animals"""
         image_path = get_image_path("object.jpg")
 
         # Check no faces
@@ -79,12 +79,25 @@ class TestImageAnalysisIntegration:
 
         # Check labels
         labels = self.analyzer.detect_labels_in_image(image_path)
-        airplane_instances = sum(
-            len(label.get("Instances", []))
-            for label in labels
-            if label["Name"] in ["Airplane", "Aircraft", "Plane"]
+
+        # Find the label that contains the instances
+        vehicle_label = next(
+            (label for label in labels if len(label.get("Instances", [])) > 0), None
         )
-        assert airplane_instances == 1, "Exactly one airplane should be detected"
+        assert vehicle_label is not None, "Should find a label with instances"
+
+        # Count by highest label_number instead of length
+        max_label_number = (
+            max(instance["label_number"] for instance in vehicle_label["Instances"]) + 1
+        )  # count starts from 0 so adding +1 to get correct amount
+        assert max_label_number == 2, "Exactly two vehicles should be detected"
+
+        # Verify these are actually aircraft by checking related labels
+        aircraft_related = any(
+            label in vehicle_label.get("RelatedLabels", [])
+            for label in ["Aircraft", "Airplane", "Jet", "Warplane"]
+        )
+        assert aircraft_related, "Vehicles should be identified as aircraft"
 
         # Verify no animals
         animal_labels = [

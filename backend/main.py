@@ -32,13 +32,13 @@ def main():
                 print(f"  └── {parent['Name']}")
 
         # Show instances if any
-        if label["Instances"]:
-            print("Instances found:")
-            for instance in label["Instances"]:
-                print(
-                    f"  └── Instance {instance['label_number']}: "
-                    f"Confidence {instance['Confidence']:.1f}%"
-                )
+        # if label["Instances"]:
+        #    print("Instances found:")
+        #    for i, instance in enumerate(label["Instances"],1):
+        #        print(
+        #            f"  └── Instance {i}: "
+        #            f"Confidence {instance['Confidence']:.1f}%"
+        #        )
 
     print("-" * 50)
 

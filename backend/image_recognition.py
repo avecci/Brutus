@@ -91,7 +91,7 @@ class BrutusEyes:
     @staticmethod
     def _is_related_label(label1, label2) -> bool:
         """
-        Helper method detect_labels_in_image().
+        Helper method for detect_labels_in_image().
         Check if labels are related through parent-child relationship
 
         Returns:
@@ -109,24 +109,11 @@ class BrutusEyes:
         self, image_path, min_confidence=90
     ) -> List[Dict[str, Any]]:
         """
-        Detect labels (objects, events) in the image.
-
-        Args:
-            image_path (str): Path to the image file
-            min_confidence (int): Minimum confidence percentage (0-100) for label detection
-
-        Returns:
-            List of detected labels with their details
-
-        Raises:
-            Exception: If label detection fails
-            ClientError: If AWS Rekognition service encounters an error
+        Detect labels (objects, events) in the image and consolidate related labels.
+        Returns consolidated labels to avoid redundancy.
         """
         logger.info(
-            "Starting label detection for image",
-            extra={
-                "image_file": image_path,
-            },
+            "Starting label detection for image", extra={"image_file": image_path}
         )
 
         try:
@@ -135,80 +122,66 @@ class BrutusEyes:
                 Image={"Bytes": image_bytes}, MinConfidence=min_confidence
             )
 
-            processed_labels = []
-            instance_counter = 1
+            # Consolidate labels
+            consolidated = {}
 
             for label in response["Labels"]:
-                processed_label = {
-                    "Name": label["Name"],
-                    "Confidence": label["Confidence"],
-                    "Parents": label.get("Parents", []),
-                }
+                name = label["Name"]
+                confidence = label["Confidence"]
+                parents = label.get("Parents", [])
+                instances = label.get("Instances", [])
 
-                if "Instances" in label and label["Instances"]:
-                    processed_instances = []
-                    for instance in label["Instances"]:
-                        processed_instance = {
-                            "BoundingBox": instance["BoundingBox"],
-                            "Confidence": instance["Confidence"],
-                            "label_number": instance_counter,
-                        }
-                        processed_instances.append(processed_instance)
-                        instance_counter += 1
-                    processed_label["Instances"] = processed_instances
+                # Create a key that combines the base concept and its parents
+                base_concept = None
+                if parents:
+                    base_concept = parents[-1]["Name"]  # Use the most general parent
                 else:
-                    processed_label["Instances"] = []
+                    base_concept = name
 
-                processed_labels.append(processed_label)
+                if base_concept not in consolidated:
+                    consolidated[base_concept] = {
+                        "Name": base_concept,
+                        "Confidence": confidence,
+                        "RelatedLabels": set(),
+                        "Instances": [],  # Initialize as empty list
+                        "Parents": parents,
+                    }
 
-            # Second pass: Consolidate related instances
+                # Add the current label as related if it's not the base concept
+                if name != base_concept:
+                    consolidated[base_concept]["RelatedLabels"].add(name)
+
+                # Update confidence if higher
+                if confidence > consolidated[base_concept]["Confidence"]:
+                    consolidated[base_concept]["Confidence"] = confidence
+
+                # Add instances without duplication
+                if instances:
+                    instance_dict = {}
+                    for instance in instances:
+                        # Create a unique key for each instance based on its bounding box
+                        key = tuple((k, v) for k, v in instance["BoundingBox"].items())
+                        if key not in instance_dict:
+                            instance_dict[key] = instance
+                            instance["label_number"] = len(instance_dict)
+                            instance_dict[key] = instance
+                    consolidated[base_concept]["Instances"] = list(
+                        instance_dict.values()
+                    )
+
+            # Convert sets to sorted lists for JSON serialization
             consolidated_labels = []
-            processed_instances = set()
+            for label in consolidated.values():
+                label["RelatedLabels"] = sorted(label["RelatedLabels"])
+                consolidated_labels.append(label)
 
-            for label in processed_labels:
-                if not label["Instances"]:
-                    consolidated_labels.append(label)
-                    continue
-
-                for instance in label["Instances"]:
-                    instance_id = instance["label_number"]
-                    if instance_id in processed_instances:
-                        continue
-
-                    # Find related labels with overlapping bounding boxes
-                    related_labels = []
-                    for other_label in processed_labels:
-                        if not other_label["Instances"]:
-                            continue
-
-                        for other_instance in other_label["Instances"]:
-                            if (
-                                instance_id != other_instance["label_number"]
-                                and self._get_overlap_ratio(
-                                    instance["BoundingBox"],
-                                    other_instance["BoundingBox"],
-                                )
-                                > 0.5
-                                and self._is_related_label(label, other_label)
-                            ):
-                                related_labels.append(other_label["Name"])
-                                processed_instances.add(other_instance["label_number"])
-
-                    processed_instances.add(instance_id)
-
-                    # Create consolidated label
-                    consolidated_label = label.copy()
-                    if related_labels:
-                        consolidated_label["RelatedLabels"] = related_labels
-                    consolidated_label["Instances"] = [
-                        instance
-                    ]  # Keep only the current instance
-                    consolidated_labels.append(consolidated_label)
+            # Sort by confidence
+            consolidated_labels.sort(key=lambda x: x["Confidence"], reverse=True)
 
             logger.info(
-                "Labels detected:",
+                "Labels detected and consolidated:",
                 extra={
-                    "Results": json.dumps(processed_labels),
+                    "Results": json.dumps(consolidated_labels),
                     "image_file": image_path,
                 },
             )
@@ -316,7 +289,7 @@ class BrutusEyes:
             return {"error": error_msg}
 
     def compare_faces_with_library(
-        self, target_image_path, library_folder, similarity_threshold=80
+        self, target_image_path, library_folder, similarity_threshold=85
     ) -> Dict[str, Union[int, List[Dict[str, Union[str, float]]], str]]:
         """
         Compare faces in image with library of reference images.
@@ -484,19 +457,26 @@ class BrutusEyes:
                 if box_str in recognized_faces:
                     # Draw orange box for recognized face
                     draw.rectangle(
-                        [left, top, right, bottom], outline="orange", width=3
+                        [left, top, right, bottom], outline="orange", width=5
                     )
                     # Add face number and name
                     text = f"{face['face_number']}-{recognized_faces[box_str]}"
                     draw.text((left, top - 20), text, fill="orange", font=font)
                 else:
                     draw.rectangle([left, top, right, bottom], outline="red", width=2)
-                    draw.text(
-                        (left, top - 20),
-                        str(face["face_number"]),
-                        fill="red",
-                        font=font,
+                    # Add black background for text
+                    text = str(face["face_number"])
+                    text_bbox = draw.textbbox((left, top - 20), text, font=font)
+                    draw.rectangle(
+                        [
+                            text_bbox[0] - 2,
+                            text_bbox[1] - 2,
+                            text_bbox[2] + 2,
+                            text_bbox[3] + 2,
+                        ],
+                        fill="black",
                     )
+                    draw.text((left, top - 20), text, fill="red", font=font)
 
         # Handle animals if present
         if has_animals:
@@ -522,12 +502,18 @@ class BrutusEyes:
                             [left, top, right, bottom], outline="blue", width=2
                         )
                         if "label_number" in instance:
-                            draw.text(
-                                (left, top - 20),
-                                str(instance["label_number"]),
-                                fill="blue",
-                                font=font,
+                            text = str(instance["label_number"])
+                            text_bbox = draw.textbbox((left, top - 20), text, font=font)
+                            draw.rectangle(
+                                [
+                                    text_bbox[0] - 2,
+                                    text_bbox[1] - 2,
+                                    text_bbox[2] + 2,
+                                    text_bbox[3] + 2,
+                                ],
+                                fill="black",
                             )
+                            draw.text((left, top - 20), text, fill="blue", font=font)
 
         # Only draw other objects if no humans or animals are present
         if not has_humans and not has_animals:
@@ -546,11 +532,17 @@ class BrutusEyes:
                             [left, top, right, bottom], outline="green", width=2
                         )
                         if "label_number" in instance:
-                            draw.text(
-                                (left, top - 20),
-                                str(instance["label_number"]),
-                                fill="green",
-                                font=font,
+                            text = str(instance["label_number"])
+                            text_bbox = draw.textbbox((left, top - 20), text, font=font)
+                            draw.rectangle(
+                                [
+                                    text_bbox[0] - 2,
+                                    text_bbox[1] - 2,
+                                    text_bbox[2] + 2,
+                                    text_bbox[3] + 2,
+                                ],
+                                fill="black",
                             )
+                            draw.text((left, top - 20), text, fill="green", font=font)
 
         return image
