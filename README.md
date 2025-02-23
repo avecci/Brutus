@@ -8,6 +8,7 @@
 ## Architecture
 - uml
 - api call flow
+-openapi standard (localhost:8000/docs)
 ## Usage
 - aws credentials
 - poetry instructions

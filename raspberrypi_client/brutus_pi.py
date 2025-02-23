@@ -1,15 +1,13 @@
-"""Command Raspberry Pi camera to take a picture and then call backend API to upload the image for backend to process."""
+"""Command Raspberry Pi and call Brutus backend API."""
 from time import sleep
 
 import requests
+from logging_utils import setup_logger
 from picamera2 import Picamera2
 from PIL import Image
 
-from logging_utils import setup_logger
-
 # Initialize logger
 logger = setup_logger(__name__)
-
 output_path = "input/input_image.jpg"
 
 
