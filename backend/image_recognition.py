@@ -1,21 +1,21 @@
-"""Feature to return image attributes using AWS Rekognition"""
+"""Feature to return image attributes using AWS Rekognition."""
 import io
-import os
 import json
-from typing import Dict, List, Union, Optional, Any, Tuple
-from logging_utils import setup_logger
+import os
+from typing import Any, Dict, List, Union
+
 import boto3
 import botocore
-from botocore.exceptions import ClientError
-from PIL import Image, ImageDraw, ImageFont, ExifTags
+from PIL import Image, ImageDraw, ImageFont
 
+from logging_utils import setup_logger
 
 logger = setup_logger(__name__)
 
 
 class BrutusEyes:
-    """
-    Class to acts as Brutus' eyes. Analyzes given image using AWS Rekognition.
+    """Class to acts as Brutus' eyes. Analyzes given image using AWS Rekognition.
+
     Returns:
      - labels for objects
      - human features
@@ -23,6 +23,7 @@ class BrutusEyes:
     """
 
     def __init__(self) -> None:
+        """Initialize Rekognition client or die trying."""
         try:
             self.rekognition_client = boto3.client("rekognition")
             logger.info("Successfully initialized Rekognition client")
@@ -32,8 +33,8 @@ class BrutusEyes:
 
     @staticmethod
     def _source_image(image_path) -> bytes:
-        """
-        Load and return an image bytes with correct orientation based on EXIF data.
+        """Load and return an image bytes with correct orientation based on EXIF data.
+
         This ensures consistent orientation whether image was taken in
         portrait or landscape mode.
 
@@ -48,7 +49,7 @@ class BrutusEyes:
         image = Image.open(image_path)
 
         try:
-            exif = image._getexif()
+            exif = image.getexif()
             if exif is not None:
                 orientation = exif.get(274)
                 if orientation:
@@ -64,8 +65,8 @@ class BrutusEyes:
 
     @staticmethod
     def _get_overlap_ratio(box1, box2) -> float:
-        """
-        Helper method detect_labels_in_image().
+        """Act as a helper method for detect_labels_in_image().
+
         Calculate intersection over union (IoU) of two bounding boxes.
         Assist detecting if detected labels are the same so
         label detection only returns the main label for detected object.
@@ -90,9 +91,7 @@ class BrutusEyes:
 
     @staticmethod
     def _is_related_label(label1, label2) -> bool:
-        """
-        Helper method for detect_labels_in_image().
-        Check if labels are related through parent-child relationship
+        """Act as a helper method for detect_labels_in_image() to check if labels are related through parent-child relationship.
 
         Returns:
             True if labels are related, False otherwise
@@ -110,6 +109,7 @@ class BrutusEyes:
     ) -> List[Dict[str, Any]]:
         """
         Detect labels (objects, events) in the image and consolidate related labels.
+
         Returns consolidated labels to avoid redundancy.
         """
         logger.info(
@@ -196,11 +196,8 @@ class BrutusEyes:
             logger.error("AWS Rekognition error", extra=error_details)
             return error_details
 
-    def detect_and_return_face_details(
-        self, image_path
-    ) -> Dict[str, Union[int, List[Dict[str, Any]], str]]:
-        """
-        Detect face details in an image and return analysis.
+    def detect_and_return_face_details(self, image_path: str) -> List[Dict[str, Any]]:
+        """Detect face details in an image and return analysis.
 
         Args:
             image_path (str): Path to the image file to analyze
@@ -211,7 +208,6 @@ class BrutusEyes:
                 - faces: list of face details with age_range, gender, emotions, etc.
                 - error: error message if detection fails
         """
-
         logger.info("Starting face detection")
         try:
             response = self.rekognition_client.detect_faces(
@@ -289,10 +285,12 @@ class BrutusEyes:
             return {"error": error_msg}
 
     def compare_faces_with_library(
-        self, target_image_path, library_folder, similarity_threshold=85
+        self,
+        target_image_path: str,
+        library_folder: str,
+        similarity_threshold: float = 85.0,
     ) -> Dict[str, Union[int, List[Dict[str, Union[str, float]]], str]]:
-        """
-        Compare faces in image with library of reference images.
+        """Compare faces in image with library of reference images.
 
         Args:
             target_image_path (str): Path to the target image file
@@ -324,7 +322,7 @@ class BrutusEyes:
             )
             return {"error": "No faces detected"}
 
-        best_matches = {}
+        best_matches: Dict[str, Dict[str, float]] = {}
 
         library_images = [
             f
@@ -374,10 +372,10 @@ class BrutusEyes:
         logger.info("Face comparison completed", extra={"results": result})
         return result
 
-    def draw_bounding_boxes(self, image_path, known_faces_dir) -> Image.Image:
-        """
-        Draw bounding boxes on image for all detected objects and faces
-        Gets detection results by calling class methods
+    def draw_bounding_boxes(self, image_path: str, known_faces_dir: str) -> Image.Image:
+        """Draw bounding boxes on image for all detected objects and faces.
+
+        Gets detection results by calling class methods.
         Colors:
             - Red for unrecognized faces
             - Orange for recognized faces
@@ -389,7 +387,6 @@ class BrutusEyes:
         Returns:
             PIL Image with bounding boxes drawn
         """
-
         image = Image.open(image_path)
         draw = ImageDraw.Draw(image)
         width, height = image.size
@@ -422,7 +419,6 @@ class BrutusEyes:
                 and "matches" in comparison_results
                 and comparison_results["matches"]
             ):
-
                 # For each recognized person, get their face match details and bounding box info
                 for match in comparison_results["matches"]:
                     source_image = os.path.join(

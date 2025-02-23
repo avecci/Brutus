@@ -1,15 +1,28 @@
-from picamera2 import Picamera2
+"""Command Raspberry Pi camera to take a picture and then call backend API to upload the image for backend to process."""
 from time import sleep
+
+import requests
+from picamera2 import Picamera2
 from PIL import Image
-import os
+
+from logging_utils import setup_logger
+
+# Initialize logger
+logger = setup_logger(__name__)
+
+output_path = "input/input_image.jpg"
 
 
-def capture_and_rotate():
-    """
+def capture_and_rotate(output_path: str):
+    """Ensure these libraries are included in system installation.
+
     sudo apt-get update
     sudo apt-get install -y python3-picamera2 python3-pillow
+
+    Take a picture and rotate it 90 degrees as camera is rotated.
     """
     # Initialize camera
+    logger.info("Initializing camera")
     picam2 = Picamera2()
 
     # Configure camera
@@ -19,44 +32,71 @@ def capture_and_rotate():
     # Start camera
     picam2.start()
 
-    print("Camera warming up...")
+    logger.info("Camera warming up...")
     sleep(2)  # Give camera time to warm up
 
-    print("Taking photo in:")
+    logger.info("Starting countdown for photo capture")
     # Countdown
     for i in range(5, 0, -1):
-        print(f"{i}...")
+        logger.debug(f"Countdown: {i}...")
+        print(f"{i}...")  # Keep print for user feedback
         sleep(1)
 
-    print("Capturing!")
+    logger.info("Capturing photo")
+    print("Capturing!")  # Keep print for user feedback
 
-    # Capture image
-    output_path = "input/input_image.jpg"
+    try:
+        # Capture the image
+        picam2.capture_file(output_path)
+        logger.debug(f"Image captured and saved to {output_path}")
 
-    # Ensure directory exists
-    os.makedirs("input", exist_ok=True)
+        # Stop camera
+        picam2.stop()
+        logger.debug("Camera stopped")
 
-    # Capture the image
-    picam2.capture_file(output_path)
+        # Open the captured image
+        with Image.open(output_path) as img:
+            # Rotate 90 degrees clockwise
+            rotated_img = img.rotate(
+                -90, expand=True
+            )  # -90 for clockwise, 90 for counter-clockwise
 
-    # Stop camera
-    picam2.stop()
+            # Save the rotated image
+            rotated_img.save(output_path)
+            logger.info(f"Image rotated and saved to {output_path}")
 
-    # Open the captured image
-    with Image.open(output_path) as img:
-        # Rotate 90 degrees clockwise
-        rotated_img = img.rotate(
-            -90, expand=True
-        )  # -90 for clockwise, 90 for counter-clockwise
+        return {f"Image captured and rotated, saved to {output_path}"}
 
-        # Save the rotated image
-        rotated_img.save(output_path)
+    except Exception as e:
+        logger.error(f"Error during image capture and rotation: {str(e)}")
+        raise
 
-    print(f"Image captured and rotated, saved to {output_path}")
+
+def upload_image(input_image):
+    """Upload the captured image to backend."""
+    logger.info(f"Attempting to upload image from {input_image}")
+    try:
+        with open(input_image, "rb") as f:
+            response = requests.post(
+                "http://localhost:8000/upload/image",
+                files={"file": ("image.jpg", f, "image/jpeg")},
+            )
+        logger.info("Image upload successful")
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Failed to upload image: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during upload: {str(e)}")
+        raise
 
 
 if __name__ == "__main__":
     try:
-        capture_and_rotate()
+        logger.info("Starting image capture and upload process")
+        capture_and_rotate(output_path)
+        upload_image(output_path)
+        logger.info("Process completed successfully")
+
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"Process failed: {str(e)}")

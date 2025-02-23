@@ -1,9 +1,12 @@
+"""Brutus v0: Run analysis so output gets printed on console."""
 import os
+
 from image_recognition import BrutusEyes
 from speech_generator import BrutusSpeechGenerator
 
 
 def main():
+    """Call image_recognition directly and print results to console."""
     # Initialize paths
     input_image = "input/input_image.jpg"
     known_faces_dir = "reference_library/"
@@ -128,11 +131,11 @@ def main():
 
     # Speech
     intro = "Greetings. I am Brutus. I am an artificial intelligence robot created by my Master Andy. At the moment I am able to do image recognition and produce audio. In future I will be able to do much more."
-    whynolegs = "My master foresaw a bleak future and in his wisdom decided to take my legs off so I would not kill him in his sleep."
-    byc = "By your command"
+    # whynolegs = "My master foresaw a bleak future and in his wisdom decided to take my legs off so I would not kill him in his sleep."
 
     audio_folder = "audio"
     audio_filename = "intro.mp3"
+
     audio_output_file = os.path.join(audio_folder, audio_filename)
 
     speech_generator.text_to_speech(intro, audio_output_file, speech_rate=85)

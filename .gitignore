@@ -27,10 +27,18 @@ share/python-wheels/
 MANIFEST
 
 #Brutus-specific
+raspberrypi_client/input
+
 backend/input/
 backend/reference_library/
 backend/output/
 backend/logs/
+
+backend/tests/input/
+backend/tests/*.jpg
+
+frontend/logs/
+
 *.log
 *.mp3
 *.wav

@@ -1,31 +1,41 @@
-[project]
-name = "B.R.U.T.U.S-Frontend"
+[tool.poetry]
+name = "frontend"
 version = "1.0.0"
 description = "Frontend for B.R.U.T.U.S."
 license = "MIT"
-authors = [
-    {name = "Antti Väisänen", email = "avaisan@proton.me"}
-]
+authors = ["Antti Väisänen <avaisan@proton.me>"]
 readme = "README.md"
-requires-python = ">=3.10,<4.0"
-
-dependencies = [
-    "fastapi (>=0.104.0,<1.0.0)",
-    "uvicorn[standard] (>=0.24.0,<1.0.0)",
-    "reactpy (>=1.0.1)",
-    "httpx (>=0.25.1)",
-    "pytest (>=8.3.4,<9.0.0)",
-    "pathlib (>=1.0.1,<2.0.0)",
-    "python-json-logger (>=3.2.1,<4.0.0)"
-]
-
-[tool.poetry]
 package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+fastapi = ">=0.104.0,<1.0.0"
+uvicorn = {extras = ["standard"], version = ">=0.24.0,<1.0.0"}
+reactpy = ">=1.0.1"
+httpx = ">=0.25.1"
+pathlib = ">=1.0.1,<2.0.0"
+python-json-logger = ">=3.2.1,<4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
-black = "^23.11.0"
-flake8 = "^6.1.0"
+pytest-asyncio = ">=0.21.1,<1.0.0"
+pytest-mock = "^3.12.0"
+pytest-cov = "^4.1.0"
+black = ">=23.11.0,<24.0.0"
+mypy = ">=1.7.0,<2.0.0"
+flake8 = ">=6.1.0,<7.0.0"
+taskipy = ">=1.12.0,<2.0.0"
+httpx = "^0.25.1"
+
+
+[tool.taskipy.tasks]
+start = "uvicorn main:app --host 0.0.0.0 --port 3000"
+dev = "uvicorn main:app --host 127.0.0.1 --port 3000 --reload"
+test = "pytest tests/ -v"
+lint = "flake8 ."
+format = "black ."
+check = "mypy ."
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

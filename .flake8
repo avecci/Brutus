@@ -1,0 +1,32 @@
+# E203 - Whitespace before ':'
+# W503 - Line break before binary operator
+# E501 - Line too long
+# F401 - Module imported but unused
+# S101 - Use of assert detected
+# S105 - Possible hardcoded password
+# S106 - Possible hardcoded password string
+
+[flake8]
+max-line-length = 88
+extend-ignore =
+    E203,
+    W503,
+    E501,
+    C901
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    *.egg-info,
+    .venv,
+    .env,
+    .pytest_cache,
+    .mypy_cache
+per-file-ignores =
+    __init__.py:F401,D104
+    tests/*:S101,S105,S106
+    api.py:B008
+max-complexity = 10
+statistics = True
+count = True

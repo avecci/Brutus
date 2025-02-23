@@ -1,22 +1,25 @@
-import unittest
+"""Call all tests in a single test suite."""
 import sys
+import unittest
 from pathlib import Path
 
 # Add project root to Python path
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 def create_test_suite():
-    """Create a test suite combining both unit and integration tests"""
+    """Create a test suite combining both unit and integration tests."""
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
 
-    # Run integration tests
-    suite.addTests(loader.loadTestsFromName("test_image_analysis_integration"))
     # Run unit tests
     suite.addTests(loader.loadTestsFromName("test_image_analysis_unit"))
+
+    # Run integration tests
+    suite.addTests(loader.loadTestsFromName("test_image_analysis_integration"))
+
+    # Run API tests
+    suite.addTests(loader.loadTestsFromName("test_image_analysis_api"))
 
     return suite
 

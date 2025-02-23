@@ -1,15 +1,40 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: v4.5.0
     hooks:
     -   id: check-yaml
+    -   id: check-toml
+    -   id: check-json
+    -   id: check-ast  # Validates Python syntax
+    -   id: debug-statements  # Checks for debugger imports
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
+    -   id: mixed-line-ending
+    -   id: check-merge-conflict
+
 -   repo: https://github.com/psf/black
-    rev: 22.10.0
+    rev: 23.11.0
     hooks:
     -   id: black
--   repo: https://github.com/asottile/pyupgrade
-    rev: v3.19.1
+        language_version: python3.10
+
+-   repo: https://github.com/pycqa/isort
+    rev: 5.12.0
     hooks:
-    -   id: pyupgrade
+    -   id: isort
+        args: ["--profile", "black"]  # Makes isort compatible with black
+
+-   repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.1.6
+    hooks:
+    -   id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+-   repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
+    hooks:
+    -   id: flake8
+        additional_dependencies:
+          - flake8-bugbear  # Finds likely bugs
+          - flake8-comprehensions  # Suggests better list/dict comprehensions
+          - flake8-docstrings  # Checks docstring formatting

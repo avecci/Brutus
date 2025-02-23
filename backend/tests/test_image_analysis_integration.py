@@ -1,26 +1,28 @@
-import pytest
+"""Verify that image recognition returns correct results using predefined images where resultset is known."""
 from pathlib import Path
+
+import pytest
+
 from image_recognition import BrutusEyes
-from PIL import Image
 
 
 @pytest.mark.integration
 class TestImageAnalysisIntegration:
-    """
-    Test the overall functionality of image analysis.
+    """Test the overall functionality of image analysis.
+
     Compare output of methods to known images.
     """
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        """Setup test environment"""
+        """Set up test environment."""
         self.analyzer = BrutusEyes()
         self.test_images_dir = Path("tests/test_data/images")
         self.known_faces_dir = self.test_images_dir / "reference"
 
     @pytest.fixture
     def get_image_path(self):
-        """Helper fixture to get image paths and ensure they exist"""
+        """Get image paths and ensure they exist."""
 
         def _get_path(image_name):
             path = self.test_images_dir / image_name
@@ -30,7 +32,7 @@ class TestImageAnalysisIntegration:
         return _get_path
 
     def test_animal_detection(self, get_image_path):
-        """Test animal.jpg - should detect exactly 1 dog, no humans"""
+        """Test animal.jpg - should detect exactly 1 dog, no humans."""
         image_path = get_image_path("animal.jpg")
 
         # Check for human face detection (should be none)
@@ -49,7 +51,7 @@ class TestImageAnalysisIntegration:
         assert animal_instances == 1, "Exactly one animal should be detected"
 
     def test_multiple_people_detection(self, get_image_path):
-        """Test multiple_people.jpg - should detect exactly 3 people, no animals"""
+        """Test multiple_people.jpg - should detect exactly 3 people, no animals."""
         image_path = get_image_path("multiple_people.jpg")
 
         # Check face detection
@@ -68,7 +70,7 @@ class TestImageAnalysisIntegration:
         assert len(animal_labels) == 0, "No animals should be detected"
 
     def test_object_detection(self, get_image_path):
-        """Test object.jpg - should detect two airplanes, no humans/animals"""
+        """Test object.jpg - should detect two airplanes, no humans/animals."""
         image_path = get_image_path("object.jpg")
 
         # Check no faces
@@ -108,7 +110,7 @@ class TestImageAnalysisIntegration:
         assert len(animal_labels) == 0, "No animals should be detected"
 
     def test_one_person_detection(self, get_image_path):
-        """Test one_person.jpg - should detect exactly 1 person, no animals"""
+        """Test one_person.jpg - should detect exactly 1 person, no animals."""
         image_path = get_image_path("one_person.jpg")
 
         # Check face detection
@@ -127,7 +129,7 @@ class TestImageAnalysisIntegration:
         assert len(animal_labels) == 0, "No animals should be detected"
 
     def test_person_and_object_detection(self, get_image_path):
-        """Test one_person_and_object.jpg - should detect 1 person and at least 1 object (car), no animals"""
+        """Test one_person_and_object.jpg - should detect 1 person and at least 1 object (car), no animals."""
         image_path = get_image_path("one_person_and_object.jpg")
 
         # Check face detection
@@ -154,7 +156,7 @@ class TestImageAnalysisIntegration:
         assert len(animal_labels) == 0, "No animals should be detected"
 
     def test_person_and_dog_detection(self, get_image_path):
-        """Test person_and_dog.jpg - should detect exactly 1 person and 1 dog"""
+        """Test person_and_dog.jpg - should detect exactly 1 person and 1 dog."""
         image_path = get_image_path("person_and_dog.jpg")
 
         # Check face detection
@@ -173,7 +175,7 @@ class TestImageAnalysisIntegration:
         assert animal_instances == 1, "Exactly one animal should be detected"
 
     def test_face_recognition(self, get_image_path):
-        """Test face recognition between one_person.jpg and reference_person_1.jpg"""
+        """Test face recognition between one_person.jpg and reference_person_1.jpg."""
         image_path = get_image_path("one_person.jpg")
 
         # Test face comparison
