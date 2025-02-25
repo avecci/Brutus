@@ -18,7 +18,7 @@ poetry run task dev
 ## Monitoring
 - logging in json, formatting
 ## Tests
-- unit tests, integration tests
+- unit tests, integration tests, api tests
 - poetry run tests
 ## Development
 pre-commit run --all-files

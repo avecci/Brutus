@@ -22,11 +22,14 @@ def mock_brutus_eyes():
 @pytest.fixture
 def test_image():
     """Create a temporary test image."""
-    img = Image.new("RGB", (100, 100), color="red")
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format="JPEG")
-    img_byte_arr.seek(0)
-    return img_byte_arr
+    with Image.new("RGB", (100, 100), color="red") as img:
+        try:
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format="JPEG")
+            img_byte_arr.seek(0)
+            return img_byte_arr
+        except (IOError, ValueError) as e:
+            pytest.fail(f"Failed to create test image: {str(e)}")
 
 
 def test_root():

@@ -1,13 +1,13 @@
 """Custom logger to properly structure JSON formatted logs."""
 import logging
 import os
+from datetime import datetime
 
 from pythonjsonlogger import json
 
 
-def setup_logger(name=None, log_folder="logs", log_filename="brutus.log"):
-    """
-    Set up a logger with JSON formatting.
+def setup_logger(name=None, log_folder="logs", log_filename="brutus"):
+    """Set up a logger with JSON formatting.
 
     Args:
         name (str): Name of the logger
@@ -17,17 +17,21 @@ def setup_logger(name=None, log_folder="logs", log_filename="brutus.log"):
     Returns:
         logging.Logger: Configured logger instance
     """
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    if not os.path.exists(log_folder):
+        os.makedirs(log_folder)
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
-    file_handler = logging.FileHandler(os.path.join(log_folder, log_filename))
+    # Create log file path with current date
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    log_file_path = os.path.join(log_folder, f"{log_filename}.{current_date}.log")
+
+    # Use regular FileHandler since we're creating dated files directly
+    file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
     stream_handler = logging.StreamHandler()
 
-    # Custom format with source information
+    # Custom log record format
     custom_format = (
         "%(timestamp)s %(levelname)s %(name)s "
         "%(module)s:%(funcName)s:%(lineno)d - %(message)s"

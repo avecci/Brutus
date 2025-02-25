@@ -27,6 +27,7 @@ class BrutusEyes:
         try:
             self.rekognition_client = boto3.client("rekognition")
             logger.info("Successfully initialized Rekognition client")
+            self.font_path = os.path.join(os.path.dirname(__file__), "arial.ttf")
         except Exception:
             logger.error("Failed to initialize client", exc_info=True)
             raise
@@ -390,7 +391,7 @@ class BrutusEyes:
         image = Image.open(image_path)
         draw = ImageDraw.Draw(image)
         width, height = image.size
-        font = ImageFont.load_default()
+        font = ImageFont.truetype(self.font_path, size=24)
 
         faces = self.detect_and_return_face_details(image_path)
         comparison_results = self.compare_faces_with_library(
@@ -406,7 +407,7 @@ class BrutusEyes:
             and len(faces["faces"]) > 0
         )
         has_animals = any(
-            label["Name"] in ["Animal", "Pet", "Dog", "Cat", "Bird"]
+            label["Name"] in ["Animal", "Pet", "Dog", "Cat", "Bird", "Bear", "Snake"]
             for label in labels
             if "Instances" in label and label["Instances"]
         )
@@ -483,6 +484,7 @@ class BrutusEyes:
                     "Dog",
                     "Cat",
                     "Bird",
+                    "Bear",
                     "Snake",
                 ]:
                     for instance in label["Instances"]:

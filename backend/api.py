@@ -1,5 +1,6 @@
 """FastAPI wrapper for Brutus backend."""
 import shutil
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, Union
 
@@ -77,7 +78,9 @@ async def health_check():
 async def upload_image(file: UploadFile = File(...)):
     """Upload and save a JPG image."""
     try:
-        logger.info(f"Attempting to upload image: {file.filename}")
+        logger.info(
+            f"Attempting to upload image: {urllib.parse.quote(str(file.filename))}"
+        )
         if not file:
             logger.error("No file uploaded")
             raise HTTPException(status_code=400, detail="No file uploaded")
@@ -120,7 +123,7 @@ async def analyze_image(
 ) -> Dict[str, Any]:
     """Analyze image and return detected labels."""
     try:
-        logger.info(f"Analyzing image at path: {input_path}")
+        logger.info(f"Analyzing image at path: {urllib.parse.quote(str(input_path))}")
         input_path = Path(input_path)
         if not input_path.exists():
             logger.error(f"Input image not found: {input_path}")
@@ -150,7 +153,9 @@ async def detect_faces(
 ) -> Dict[str, Any]:
     """Detect faces and their attributes in an image."""
     try:
-        logger.info(f"Starting face detection for image: {input_path}")
+        logger.info(
+            f"Starting face detection for image: {urllib.parse.quote(input_path)}"
+        )
         input_path = Path(input_path)
         if not input_path.exists():
             logger.error(f"Input image not found: {input_path}")
@@ -231,7 +236,7 @@ async def analyze_all(
     """Perform comprehensive analysis of an image."""
     try:
         logger.info(
-            f"Starting comprehensive analysis - Input: {input_path}, Known faces dir: {known_faces_dir}"
+            f"Starting comprehensive analysis - Input: {urllib.parse.quote(str(input_path))}, Known faces dir: {urllib.parse.quote(str(known_faces_dir))}"
         )
         input_path = Path(input_path)
         known_faces_dir = Path(known_faces_dir)
@@ -292,7 +297,7 @@ async def save_analyzed_image(
     """Analyze image and save the result with bounding boxes."""
     try:
         logger.info(
-            f"Starting image analysis and save - Input: {input_path}, Output: {output_path}"
+            f"Starting image analysis and save - Input: {urllib.parse.quote(str(input_path))}, Output: {urllib.parse.quote(str(output_path))}"
         )
         input_path = Path(input_path)
         known_faces_dir = Path(known_faces_dir)

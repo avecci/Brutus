@@ -2,9 +2,10 @@
 from time import sleep
 
 import requests
-from logging_utils import setup_logger
 from picamera2 import Picamera2
 from PIL import Image
+
+from logging_utils import setup_logger
 
 # Initialize logger
 logger = setup_logger(__name__)
