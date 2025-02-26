@@ -1,5 +1,7 @@
 """FastAPI wrapper for Brutus backend."""
+import os
 import shutil
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, Union
@@ -7,10 +9,11 @@ from typing import Any, Dict, Union
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from image_recognition import BrutusEyes
 from logging_utils import setup_logger
+from speech_generator import BrutusSpeechGenerator
 
 logger = setup_logger(__name__)
 
@@ -35,6 +38,7 @@ app.add_middleware(
 )
 
 brutus_eyes = BrutusEyes()
+brutus_voice = BrutusSpeechGenerator()
 
 # Define default paths
 DEFAULT_INPUT_PATH = Path("input/input_image.jpg")
@@ -62,6 +66,7 @@ async def root() -> Dict[str, Any]:
                 "analyze_all": "/analyze/all",
                 "save_analyzed_image": "/analyze/save-image",
                 "upload_image": "/upload/image",
+                "generate_speech": "/generate/speech",
             },
         }
     )
@@ -374,6 +379,39 @@ async def get_analyzed_image():
         raise HTTPException(
             status_code=500, detail=f"Error retrieving analyzed image: {str(e)}"
         )
+
+
+@app.post("/generate/speech")
+async def generate_speech(text: str):
+    """Generate speech from text and return audio stream."""
+    try:
+        logger.info(f"Generating speech for text: {text}")
+
+        # Create temporary file for audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+            output_path = temp_file.name
+
+        # Generate speech
+        result = brutus_voice.text_to_speech(text, output_path)
+        if not result:
+            raise HTTPException(status_code=500, detail="Speech generation failed")
+
+        # Return audio file
+        def iterfile():
+            with open(output_path, "rb") as f:
+                yield from f
+            # Cleanup temp file after streaming
+            os.unlink(output_path)
+
+        return StreamingResponse(
+            iterfile(),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": 'attachment; filename="speech.mp3"'},
+        )
+
+    except Exception as e:
+        logger.error(f"Error generating speech: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

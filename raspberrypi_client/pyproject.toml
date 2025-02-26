@@ -13,6 +13,8 @@ python = ">=3.10,<4.0"
 picamera2 = "*"
 Pillow = "*"
 requests = "*"
+pygame = "^2.6.1"
+python-json-logger = "^3.2.1"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -31,6 +33,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.taskipy.tasks]
 test = "pytest tests/ -v"
+run = "python3 brutus_pi.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
