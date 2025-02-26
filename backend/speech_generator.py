@@ -1,4 +1,5 @@
 """Wrapper module to call AWS Polly with text and return audio file."""
+import os
 from contextlib import closing
 from typing import Optional
 
@@ -29,7 +30,9 @@ class BrutusSpeechGenerator:
     def __init__(self) -> None:
         """Initialize AWS Polly client or die trying."""
         try:
-            self.polly_client = boto3.client("polly")
+            profile_name = os.getenv("AWS_PROFILE")
+            session = boto3.Session(profile_name=profile_name)
+            self.polly_client = session.client("polly")
             logger.info("Successfully initialized Polly client")
         except Exception:
             logger.error("Failed to initialize client", exc_info=True)

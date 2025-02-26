@@ -23,7 +23,7 @@ class TestImageAnalyzerUnit(unittest.TestCase):
         self.mock_logger = self.logger_patcher.start()
 
         # Create analyzer with mocked Rekognition client
-        with patch("boto3.client"):
+        with patch("boto3.Session"):
             self.analyzer = BrutusEyes()
             self.analyzer.rekognition_client = Mock()
 
@@ -33,21 +33,24 @@ class TestImageAnalyzerUnit(unittest.TestCase):
 
     def test_init_success(self):
         """Test successful initialization."""
+        mock_boto3_session = Mock()
         mock_boto3_client = Mock()
-        with patch("boto3.client", return_value=mock_boto3_client) as mock_client:
+        mock_boto3_session.client.return_value = mock_boto3_client
+        with patch("boto3.Session", return_value=mock_boto3_session) as mock_session:
             BrutusEyes()
-            mock_client.assert_called_once_with("rekognition")
+            mock_session.assert_called_once()
+            mock_boto3_session.client.assert_called_once_with("rekognition")
 
     def test_init_failure(self):
         """Test initialization failure."""
-        with patch("boto3.client") as mock_boto3_client:
+        with patch("boto3.Session") as mock_boto3_session:
             error_response = {
                 "Error": {
                     "Code": "InvalidCredentials",
                     "Message": "Invalid AWS credentials",
                 }
             }
-            mock_boto3_client.side_effect = ClientError(error_response, "CreateClient")
+            mock_boto3_session.side_effect = ClientError(error_response, "CreateClient")
 
             with self.assertRaises(ClientError) as context:
                 BrutusEyes()

@@ -25,7 +25,9 @@ class BrutusEyes:
     def __init__(self) -> None:
         """Initialize Rekognition client or die trying."""
         try:
-            self.rekognition_client = boto3.client("rekognition")
+            profile_name = os.getenv("AWS_PROFILE")
+            session = boto3.Session(profile_name=profile_name)
+            self.rekognition_client = session.client("rekognition")
             logger.info("Successfully initialized Rekognition client")
             self.font_path = os.path.join(os.path.dirname(__file__), "arial.ttf")
         except Exception:
