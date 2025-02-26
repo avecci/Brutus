@@ -27,6 +27,7 @@ per-file-ignores =
     __init__.py:F401,D104
     tests/*:S101,S105,S106
     api.py:B008
+    raspberrypi_client/brutus_pi.py:E402
 max-complexity = 10
 statistics = True
 count = True

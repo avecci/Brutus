@@ -204,5 +204,51 @@ def test_upload_image_invalid_type():
     assert response.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_generate_speech_success():
+    """Test successful speech generation."""
+    test_text = "Hello, World!"
+
+    # Mock the speech generator
+    with patch("api.brutus_voice") as mock_voice:
+        # Configure mock to write some test audio data
+        def mock_text_to_speech(text, output_path):
+            with open(output_path, "wb") as f:
+                f.write(b"test audio data")
+            return True
+
+        mock_voice.text_to_speech.side_effect = mock_text_to_speech
+
+        # Make request
+        response = client.post(f"/generate/speech?text={test_text}")
+
+        # Verify response
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/mpeg"
+        assert (
+            response.headers["content-disposition"]
+            == 'attachment; filename="speech.mp3"'
+        )
+        assert response.content == b"test audio data"
+
+        # Verify mock was called correctly
+        mock_voice.text_to_speech.assert_called_once()
+        call_args = mock_voice.text_to_speech.call_args[0]
+        assert call_args[0] == test_text
+        assert call_args[1].endswith(".mp3")
+
+
+@pytest.mark.asyncio
+async def test_generate_speech_failure():
+    """Test speech generation failure."""
+    with patch("api.brutus_voice") as mock_voice:
+        mock_voice.text_to_speech.return_value = None  # Simulate failure
+
+        response = client.post("/generate/speech?text=test")
+
+        assert response.status_code == 500
+        assert "Speech generation failed" in response.json()["detail"]
+
+
 if __name__ == "__main__":
     pytest.main(["-v"])

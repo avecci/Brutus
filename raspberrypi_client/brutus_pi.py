@@ -5,15 +5,13 @@ import tempfile
 from time import sleep
 from typing import Any, Dict, NoReturn
 
-import pygame
-import requests
-from picamera2 import Picamera2
-from PIL import Image
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"  # noqa: E402
+import pygame  # noqa: E402
+import requests  # noqa: E402
+from picamera2 import Picamera2  # noqa: E402
+from PIL import Image  # noqa: E402
 
-from logging_utils import setup_logger
-
-# Suppress Pygame welcome message
-os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
+from logging_utils import setup_logger  # noqa: E402
 
 # Initialize logger
 logger = setup_logger(__name__)

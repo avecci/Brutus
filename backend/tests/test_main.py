@@ -15,11 +15,11 @@ def create_test_suite():
     # Run unit tests
     suite.addTests(loader.loadTestsFromName("test_image_analysis_unit"))
 
-    # Run integration tests
+    # Run image analysis sanity tests
     suite.addTests(loader.loadTestsFromName("test_image_analysis_integration"))
 
     # Run API tests
-    suite.addTests(loader.loadTestsFromName("test_image_analysis_api"))
+    suite.addTests(loader.loadTestsFromName("test_api"))
 
     return suite
 
