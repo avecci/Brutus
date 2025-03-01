@@ -6,11 +6,15 @@ from typing import Any, Dict, List, Union
 
 import boto3
 import botocore
+from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
 
 from logging_utils import setup_logger
 
 logger = setup_logger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class BrutusEyes:
@@ -26,7 +30,10 @@ class BrutusEyes:
         """Initialize Rekognition client or die trying."""
         try:
             profile_name = os.getenv("AWS_PROFILE")
-            session = boto3.Session(profile_name=profile_name)
+            region_name = os.getenv("AWS_REGION", "eu-central-1")
+            if not profile_name:
+                logger.error("AWS_PROFILE not found in .env file")
+            session = boto3.Session(profile_name=profile_name, region_name=region_name)
             self.rekognition_client = session.client("rekognition")
             logger.info("Successfully initialized Rekognition client")
             self.font_path = os.path.join(os.path.dirname(__file__), "arial.ttf")

@@ -5,11 +5,15 @@ from typing import Optional
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from dotenv import load_dotenv
 
 from logging_utils import setup_logger
 
 # Setup JSON logger
 logger = setup_logger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class BrutusSpeechGenerator:
@@ -31,7 +35,10 @@ class BrutusSpeechGenerator:
         """Initialize AWS Polly client or die trying."""
         try:
             profile_name = os.getenv("AWS_PROFILE")
-            session = boto3.Session(profile_name=profile_name)
+            region_name = os.getenv("AWS_REGION", "eu-central-1")
+            if not profile_name:
+                logger.error("AWS_PROFILE not found in .env file")
+            session = boto3.Session(profile_name=profile_name, region_name=region_name)
             self.polly_client = session.client("polly")
             logger.info("Successfully initialized Polly client")
         except Exception:

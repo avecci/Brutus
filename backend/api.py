@@ -23,6 +23,7 @@ class Settings:
 
     HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
+    AWS_REGION: str = os.getenv("AWS_REGION", "eu-central-1")
 
 
 settings = Settings()

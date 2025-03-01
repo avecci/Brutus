@@ -1,9 +1,11 @@
 """Main web app for Brutus frontend. Uses ReactPY with FastAPI as backend."""
+import os
 import time
 from pathlib import Path
 
 import httpx
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,19 +16,22 @@ from logging_utils import setup_logger
 
 logger = setup_logger(__name__)
 
+# Load environment variables from .env file
+load_dotenv()
+
 
 class Settings:
     """Application configuration settings."""
 
     HOST: str = "0.0.0.0"
     PORT: int = 3000
-    BACKEND_URL: str = "http://localhost:8000"  # Backend API URL
+    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
     APP_TITLE: str = "B.R.U.T.U.S."
 
 
 settings = Settings()
 
-app = FastAPI()
+app = FastAPI(title=settings.APP_TITLE)
 logger.info(
     "Starting frontend application",
     extra={
@@ -335,6 +340,7 @@ def App():
     return html.div(
         {"class": "container"},
         [
+            html.title("B.R.U.T.U.S."),
             html.link({"rel": "stylesheet", "href": "/static/styles/main.css"}),
             Header(),
             AnalyzedImage(),

@@ -1,21 +1,18 @@
-[project]
+[tool.poetry]
 name = "raspberrypi_client"
 version = "0.1.0"
 description = "Raspberry Pi client to take pictures etc to get input for Brutus API"
-authors = [
-    {name = "Antti Väisänen",email = "avaisan@proton.me"}
-]
 license = "MIT"
+authors = ["Antti Väisänen <avaisan@proton.me>"]
+readme = "README.md"
 package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-picamera2 = "*"
 Pillow = "*"
 requests = "*"
 pygame = "^2.6.1"
 python-json-logger = "^3.2.1"
-
 
 [tool.poetry.group.dev.dependencies]
 black = ">=23.11.0,<24.0.0"
@@ -32,8 +29,12 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.taskipy.tasks]
+start = "python3 brutus_pi.py"
+dev = "python3 brutus_pi.py --debug"
 test = "pytest tests/ -v"
-run = "python3 brutus_pi.py"
+lint = "flake8 ."
+format = "black ."
+check = "mypy ."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,3 +44,30 @@ markers = [
     "unit: marks tests as unit tests",
     "asyncio: mark test as an async test"
 ]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203"
+exclude = [".git", "__pycache__", "build", "dist"]
