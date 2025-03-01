@@ -30,9 +30,6 @@ fi
 # Start Raspberry Pi client
 echo "Starting Raspberry Pi client..."
 cd ../raspberrypi_client || exit 1
-poetry install
-poetry run task start &
-echo $! > "$PI_CLIENT_PID"
 
-# Wait for the client process
-wait
+# Run the client in foreground
+poetry run task start

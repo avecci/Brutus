@@ -55,7 +55,7 @@ def test_analyze_image_success(mock_brutus_eyes):
         {"Name": "Person", "Confidence": 99.9}
     ]
 
-    response = client.get("/analyze/image")
+    response = client.get("/image/analyze")
 
     assert response.status_code == 200
     assert "status" in response.json()
@@ -66,7 +66,7 @@ def test_analyze_image_success(mock_brutus_eyes):
 
 def test_analyze_image_not_found():
     """Test image analysis with non-existent image."""
-    response = client.get("/analyze/image?input_path=nonexistent.jpg")
+    response = client.get("/image/analyze?input_path=nonexistent.jpg")
     assert response.status_code == 404
 
 
@@ -76,7 +76,7 @@ def test_analyze_faces_success(mock_brutus_eyes):
         {"BoundingBox": {"Width": 0.5, "Height": 0.5, "Left": 0.25, "Top": 0.25}}
     ]
 
-    response = client.get("/analyze/faces")
+    response = client.get("/image/analyze/faces")
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
@@ -86,7 +86,7 @@ def test_analyze_faces_success(mock_brutus_eyes):
 
 def test_analyze_faces_not_found():
     """Test face detection with non-existent image."""
-    response = client.get("/analyze/faces?input_path=nonexistent.jpg")
+    response = client.get("/image/analyze/faces?input_path=nonexistent.jpg")
     assert response.status_code == 404
 
 
@@ -97,7 +97,7 @@ def test_facial_recognition_success(mock_brutus_eyes):
         "matches": [{"Name": "Test Person", "Similarity": 99.9}],
     }
 
-    response = client.get("/analyze/facial-recognition")
+    response = client.get("/image/analyze/facial-recognition")
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
@@ -107,13 +107,15 @@ def test_facial_recognition_success(mock_brutus_eyes):
 
 def test_facial_recognition_input_not_found():
     """Test facial recognition with non-existent input image."""
-    response = client.get("/analyze/facial-recognition?input_path=nonexistent.jpg")
+    response = client.get(
+        "/image/analyze/facial-recognition?input_path=nonexistent.jpg"
+    )
     assert response.status_code == 404
 
 
 def test_facial_recognition_reference_not_found():
     """Test facial recognition with non-existent reference directory."""
-    response = client.get("/analyze/facial-recognition?reference_dir=nonexistent")
+    response = client.get("/image/analyze/facial-recognition?reference_dir=nonexistent")
     assert response.status_code == 404
 
 
@@ -156,7 +158,7 @@ async def test_save_analyzed_image_success(mock_brutus_eyes, test_image):
     mock_brutus_eyes.draw_bounding_boxes.return_value = Image.new("RGB", (100, 100))
 
     with patch("pathlib.Path.exists", return_value=True):
-        response = client.post(f"/analyze/save-image?output_path={test_output}")
+        response = client.post(f"/image/save?output_path={test_output}")
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
@@ -170,13 +172,13 @@ async def test_save_analyzed_image_success(mock_brutus_eyes, test_image):
 
 def test_save_analyzed_image_input_not_found():
     """Test image saving with non-existent input image."""
-    response = client.post("/analyze/save-image?input_path=nonexistent.jpg")
+    response = client.post("/image/save?input_path=nonexistent.jpg")
     assert response.status_code == 404  # API returns 500 for file not found
 
 
 def test_save_analyzed_image_known_faces_not_found():
     """Test image saving with non-existent known faces directory."""
-    response = client.post("/analyze/save-image?known_faces_dir=nonexistent")
+    response = client.post("/image/save?known_faces_dir=nonexistent")
     assert response.status_code == 404
 
 
@@ -184,7 +186,7 @@ def test_save_analyzed_image_known_faces_not_found():
 async def test_upload_image_success(test_image):
     """Test successful image upload."""
     files = {"file": ("test.jpg", test_image, "image/jpeg")}
-    response = client.post("/upload/image", files=files)
+    response = client.post("/image/upload", files=files)
 
     assert response.status_code == 201
     assert response.json()["status"] == "success"
@@ -202,6 +204,21 @@ def test_upload_image_invalid_type():
     files = {"file": ("test.txt", b"test content", "text/plain")}
     response = client.post("/upload/image", files=files)
     assert response.status_code == 400
+
+
+def test_latest_image_success():
+    """Test successful latest image retrieval."""
+    with patch("pathlib.Path.exists", return_value=True):
+        response = client.get("/image/latest")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_latest_image_not_found():
+    """Test latest image retrieval when image doesn't exist."""
+    with patch("pathlib.Path.exists", return_value=False):
+        response = client.get("/image/latest")
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio

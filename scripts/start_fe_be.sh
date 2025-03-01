@@ -8,7 +8,56 @@ mkdir -p $PIDDIR
 BACKEND_PID="$PIDDIR/backend.pid"
 FRONTEND_PID="$PIDDIR/frontend.pid"
 
-# ...existing functions (is_running, is_port_in_use, stop_service, cleanup, wait_for_backend)...
+# Function to check if a process is running
+is_running() {
+    [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null
+}
+
+# Function to check if a port is in use
+is_port_in_use() {
+    netstat -tulpn 2>/dev/null | grep "0.0.0.0:$1" >/dev/null
+    return $?
+}
+
+# Function to stop a service
+stop_service() {
+    if [ -f "$1" ]; then
+        pid=$(cat "$1")
+        echo "Stopping process $pid..."
+        kill "$pid" 2>/dev/null
+        rm "$1"
+    fi
+}
+
+# Cleanup function
+cleanup() {
+    echo "Cleaning up..."
+    stop_service "$BACKEND_PID"
+    stop_service "$FRONTEND_PID"
+    exit 0
+}
+
+# Function to wait for backend health
+wait_for_backend() {
+    local max_attempts=30
+    local attempt=1
+    local backend_url="http://localhost:8000/health"
+
+    echo "Waiting for backend to be healthy..."
+
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s "$backend_url" | grep -q '"status":"Healthy"'; then
+            echo "Backend is healthy!"
+            return 0
+        fi
+        echo "Attempt $attempt/$max_attempts: Backend not ready yet..."
+        sleep 2
+        ((attempt++))
+    done
+
+    echo "Backend failed to become healthy after $max_attempts attempts"
+    return 1
+}
 
 # Set up trap for cleanup
 trap cleanup SIGINT SIGTERM
@@ -27,7 +76,6 @@ fi
 # Start backend
 echo "Starting backend server..."
 cd backend || exit 1
-poetry install
 poetry run task start &
 echo $! > "$BACKEND_PID"
 
@@ -41,7 +89,6 @@ fi
 # Start frontend
 echo "Starting frontend server..."
 cd ../frontend || exit 1
-poetry install
 poetry run task start &
 echo $! > "$FRONTEND_PID"
 

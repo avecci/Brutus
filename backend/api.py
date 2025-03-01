@@ -23,7 +23,6 @@ class Settings:
 
     HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
-    AWS_REGION: str = os.getenv("AWS_REGION", "eu-central-1")
 
 
 settings = Settings()
@@ -60,19 +59,24 @@ async def root() -> Dict[str, Any]:
             "status": "online",
             "description": "Endpoints for Brutus functionalities provided by backend functions.",
             "endpoints": {
-                "health": "/health",
-                "analyze_image": "/analyze/image",
-                "analyze_faces": "/analyze/faces",
-                "facial_recognition": "/analyze/facial-recognition",
-                "analyze_all": "/analyze/all",
-                "save_analyzed_image": "/analyze/save-image",
-                "upload_image": "/upload/image",
-                "generate_speech": "/generate/speech",
+                # System endpoints
+                "health": "Check system health",
+                # Image endpoints
+                "image/upload": "Upload new image",
+                "image/analyze": "Analyze image for labels",
+                "image/analyze/faces": "Detect faces in image",
+                "image/analyze/facial-recognition": "Compare faces with reference library",
+                "image/analyze/all": "Perform comprehensive analysis",
+                "image/save": "Save analyzed image with annotations",
+                "image/latest": "Get latest analyzed image",
+                # Speech endpoints
+                "speech/generate": "Generate speech from text",
             },
         }
     )
 
 
+# System endpoints
 @app.get("/health", status_code=200)
 async def health_check():
     """Health check endpoint."""
@@ -80,7 +84,8 @@ async def health_check():
     return {"status": "Healthy"}
 
 
-@app.post("/upload/image")
+# Image endpoints
+@app.post("/image/upload")
 async def upload_image(file: UploadFile = File(...)):
     """Upload and save a JPG image."""
     try:
@@ -123,7 +128,7 @@ async def upload_image(file: UploadFile = File(...)):
         file.file.close()
 
 
-@app.get("/analyze/image", status_code=200)
+@app.get("/image/analyze")
 async def analyze_image(
     input_path: Union[str, Path] = str(DEFAULT_INPUT_PATH)
 ) -> Dict[str, Any]:
@@ -153,7 +158,7 @@ async def analyze_image(
         raise HTTPException(status_code=500, detail=f"Error detecting labels: {str(e)}")
 
 
-@app.get("/analyze/faces", status_code=200)
+@app.get("/image/analyze/faces")
 async def detect_faces(
     input_path: Union[str, Path] = str(DEFAULT_INPUT_PATH)
 ) -> Dict[str, Any]:
@@ -185,7 +190,7 @@ async def detect_faces(
         raise HTTPException(status_code=500, detail=f"Error detecting faces: {str(e)}")
 
 
-@app.get("/analyze/facial-recognition")
+@app.get("/image/analyze/facial-recognition")
 async def facial_recognition(
     input_path: Union[str, Path] = str(DEFAULT_INPUT_PATH),
     reference_dir: Union[str, Path] = str(DEFAULT_KNOWN_FACES_DIR),
@@ -234,7 +239,7 @@ async def facial_recognition(
         raise HTTPException(status_code=500, detail=f"Error comparing faces: {str(e)}")
 
 
-@app.get("/analyze/all", status_code=200)
+@app.get("/image/analyze/all")
 async def analyze_all(
     input_path: Union[str, Path] = str(DEFAULT_INPUT_PATH),
     known_faces_dir: Union[str, Path] = str(DEFAULT_KNOWN_FACES_DIR),
@@ -294,13 +299,13 @@ async def analyze_all(
         )
 
 
-@app.post("/analyze/save-image", status_code=201)
+@app.post("/image/save")
 async def save_analyzed_image(
     input_path: Union[str, Path] = str(DEFAULT_INPUT_PATH),
     output_path: Union[str, Path] = str(DEFAULT_OUTPUT_PATH),
     known_faces_dir: Union[str, Path] = str(DEFAULT_KNOWN_FACES_DIR),
 ) -> Dict[str, Any]:
-    """Analyze image and save the result with bounding boxes."""
+    """Save analyzed image with annotations."""
     try:
         logger.info(
             f"Starting image analysis and save - Input: {urllib.parse.quote(str(input_path))}, Output: {urllib.parse.quote(str(output_path))}"
@@ -349,16 +354,9 @@ async def save_analyzed_image(
         )
 
 
-@app.get("/images/analyzed")
-async def get_analyzed_image():
-    """Return the analyzed image from the output directory.
-
-    Returns a 404 if the image doesn't exist.
-
-
-    Test with
-    > http://localhost:8000/images/analyzed
-    """
+@app.get("/image/latest")
+async def get_latest_image():
+    """Get the latest analyzed image."""
     try:
         logger.info("Attempting to retrieve analyzed image")
         if not ANALYZED_IMAGE_PATH.exists():
@@ -382,7 +380,8 @@ async def get_analyzed_image():
         )
 
 
-@app.post("/generate/speech")
+# Speech endpoints
+@app.post("/speech/generate")
 async def generate_speech(text: str):
     """Generate speech from text and return audio stream."""
     try:

@@ -32,6 +32,7 @@ class Settings:
 settings = Settings()
 
 app = FastAPI(title=settings.APP_TITLE)
+
 logger.info(
     "Starting frontend application",
     extra={
@@ -76,10 +77,8 @@ def AnalyzedImage():
             logger.info("Starting image processing")
             set_loading(True)
             async with httpx.AsyncClient(timeout=30.0) as client:
-                logger.debug("Calling save-image endpoint")
-                save_response = await client.post(
-                    f"{settings.BACKEND_URL}/analyze/save-image"
-                )
+                logger.debug("Calling save image endpoint")
+                save_response = await client.post(f"{settings.BACKEND_URL}/image/save")
                 if save_response.status_code != 200:
                     error_msg = "Failed to process image"
                     logger.error(f"{error_msg}: {save_response.status_code}")
@@ -110,8 +109,8 @@ def AnalyzedImage():
         logger.debug(f"Rendering error state: {error}")
         return html.div({"class": "error"}, f"Error: {error}")
 
-    # Add timestamp to URL to prevent caching
-    image_url = f"{settings.BACKEND_URL}/images/analyzed?t={timestamp}"
+    # Update image URL to use new endpoint
+    image_url = f"{settings.BACKEND_URL}/image/latest?t={timestamp}"
     logger.debug(f"Rendering analyzed image with URL: {image_url}")
 
     return html.div(
@@ -148,10 +147,8 @@ def AnalysisResults():
         try:
             set_loading(True)
             async with httpx.AsyncClient(timeout=30.0) as client:
-                logger.debug("Calling save-image endpoint")
-                save_response = await client.post(
-                    f"{settings.BACKEND_URL}/analyze/save-image"
-                )
+                logger.debug("Calling save image endpoint")
+                save_response = await client.post(f"{settings.BACKEND_URL}/image/save")
                 if save_response.status_code != 200:
                     error_msg = "Failed to process image"
                     logger.error(f"{error_msg}: {save_response.status_code}")
@@ -161,13 +158,13 @@ def AnalysisResults():
                 # Then fetch analysis results
                 logger.debug("Fetching analysis results")
                 labels_response = await client.get(
-                    f"{settings.BACKEND_URL}/analyze/image"
+                    f"{settings.BACKEND_URL}/image/analyze"
                 )
                 faces_response = await client.get(
-                    f"{settings.BACKEND_URL}/analyze/faces"
+                    f"{settings.BACKEND_URL}/image/analyze/faces"
                 )
                 facial_recognition = await client.get(
-                    f"{settings.BACKEND_URL}/analyze/facial-recognition"
+                    f"{settings.BACKEND_URL}/image/analyze/facial-recognition"
                 )
 
                 if all(
