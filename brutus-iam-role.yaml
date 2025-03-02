@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-01'
+Description: 'IAM Role for Brutus'
+
+Resources:
+  BrutusApplicationRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: BrutusApplicationRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - rekognition.amazonaws.com
+                - polly.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+  BrutusApplicationPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: BrutusApplicationPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Rekognition permissions
+          - Effect: Allow
+            Action:
+              - 'rekognition:DetectFaces'
+              - 'rekognition:DetectLabels'
+              - 'rekognition:CompareFaces'
+            Resource: '*'
+          # Polly permissions
+          - Effect: Allow
+            Action:
+              - 'polly:SynthesizeSpeech'
+            Resource: '*'
+      Roles:
+        - !Ref BrutusApplicationRole

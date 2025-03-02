@@ -29,7 +29,5 @@ fi
 
 # Start Raspberry Pi client
 echo "Starting Raspberry Pi client..."
-cd ../raspberrypi_client || exit 1
-
-# Run the client in foreground
+cd raspberrypi_client || exit 1
 poetry run task start

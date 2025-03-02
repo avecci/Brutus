@@ -39,7 +39,7 @@ cleanup() {
 
 # Function to wait for backend health
 wait_for_backend() {
-    local max_attempts=30
+    local max_attempts=15
     local attempt=1
     local backend_url="http://localhost:8000/health"
 
@@ -51,7 +51,7 @@ wait_for_backend() {
             return 0
         fi
         echo "Attempt $attempt/$max_attempts: Backend not ready yet..."
-        sleep 2
+        sleep 3
         ((attempt++))
     done
 

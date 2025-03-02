@@ -5,22 +5,29 @@ import tempfile
 from time import sleep
 from typing import Any, Dict, NoReturn
 
+from PIL import Image
+
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"  # noqa: E402
 import pygame  # noqa: E402
 import requests  # noqa: E402
-from picamera2 import Picamera2  # noqa: E402
-from PIL import Image  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
 
 from logging_utils import setup_logger  # noqa: E402
 
 # Initialize logger
 logger = setup_logger(__name__)
 
+# Load environment variables from .env file
+load_dotenv()
+
 
 class Settings:
     """Application configuration settings."""
 
+    HOST: str = "0.0.0.0"
+    PORT: int = 3000
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+    APP_TITLE: str = "B.R.U.T.U.S."
 
 
 settings = Settings()
@@ -57,59 +64,48 @@ class PictureHandler:
     """Take a picture and send it to backend via API call."""
 
     TARGET_IMAGE_PATH: str = "input/input_image.jpg"
-    BACKEND_API_IMAGE_UPLOAD_URL: str = os.path.join(
-        settings.BACKEND_URL, "image/upload"
-    )
+    BACKEND_API_IMAGE_UPLOAD_URL: str = f"{settings.BACKEND_URL}/image/upload"
     COUNTDOWN_TIME: int = 5  # Wait time before capturing image
 
     def __init__(self) -> None:
         """Initialize the PictureHandler."""
         self.image_path: str = self.TARGET_IMAGE_PATH
-        self.picam2: Picamera2 | None = None
+        os.makedirs(os.path.dirname(self.TARGET_IMAGE_PATH), exist_ok=True)
 
     def capture_rotate_and_save(self, image_path: str) -> None:
-        """Take a picture and rotate it 90 degrees as camera is rotated."""
+        """Take a picture using rpicam-still and rotate it."""
         try:
-            # Initialize camera
-            logger.info("Initializing camera")
-            self.picam2 = Picamera2()
+            logger.info("Starting image capture with rpicam-still")
 
-            # Configure camera
-            config = self.picam2.create_still_configuration()
-            self.picam2.configure(config)
+            # Create a temporary file for the original image
+            temp_path = f"{image_path}.temp"
 
-            # Start camera
-            self.picam2.start()
-
-            logger.info("Camera warming up...")
-            sleep(2)
-
-            logger.info("Starting countdown for photo capture")
+            # Countdown
             for i in range(self.COUNTDOWN_TIME, 0, -1):
                 print(f"Countdown: {i}...")
                 sleep(1)
 
-            logger.info("Capturing photo")
-            self.picam2.capture_file(image_path)
-            logger.debug(f"Image captured and saved to {image_path}")
+            # Capture image with rpicam-still to temp file
+            command = f"rpicam-still -n -o {temp_path}"
+            result = os.system(command)
+
+            if result != 0:
+                raise RuntimeError(f"rpicam-still failed with exit code {result}")
+
+            # Rotate the image using PIL
+            with Image.open(temp_path) as img:
+                rotated_img = img.rotate(
+                    -90, expand=True
+                )  # Rotate 90 degrees clockwise
+                rotated_img.save(image_path)
+
+            # Remove temporary file
+            os.remove(temp_path)
+
+            logger.debug(f"Image captured, rotated and saved to {image_path}")
 
         except Exception as e:
             logger.error(f"Error during image capture: {str(e)}")
-            raise
-
-        finally:
-            if self.picam2:
-                self.picam2.stop()
-                logger.info("Camera stopped")
-
-        try:
-            with Image.open(image_path) as img:
-                rotated_img = img.rotate(-90, expand=True)
-                rotated_img.save(image_path)
-                logger.info(f"Image rotated and saved to {image_path}")
-
-        except Exception as e:
-            logger.error(f"Error during image rotation: {str(e)}")
             raise
 
     def upload_image(self, input_image: str) -> Dict[str, Any]:
@@ -140,7 +136,7 @@ class BackendHandler:
     def check_backend_health(cls) -> bool:
         """Verify backend is running and healthy."""
         try:
-            response = requests.get(f"{settings.BACKEND_URL}/health", timeout=30)
+            response = requests.get(f"{settings.BACKEND_URL}/health")
             response.raise_for_status()
             health_data = response.json()
             return health_data.get("status") == "Healthy"
@@ -203,7 +199,7 @@ class MenuHandler:
                 text = input("Enter text for Brutus to speak: ").strip()
                 if text:
                     response = requests.post(
-                        f"{BackendHandler.BACKEND_URL}/speech/generate",
+                        f"{settings.BACKEND_URL}/speech/generate",
                         params={"text": text},
                         stream=True,
                     )
