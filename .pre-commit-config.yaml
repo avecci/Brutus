@@ -3,7 +3,7 @@ repos:
     rev: v4.5.0
     hooks:
     -   id: check-yaml
-        args: ["--unsafe"]
+        args: ["--unsafe"] # Has to be used to allow Cloudformation references
     -   id: check-toml
     -   id: check-json
     -   id: check-ast  # Validates Python syntax
