@@ -164,12 +164,12 @@ sudo apt-get install awscli rpicam-still
 ### Setup
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/brutus.git
+git clone https://github.com/avecci/brutus.git
 ```
 
 2. Set up environment variables:
 ```bash
-aws sso configure
+aws configure sso
 ```
 
 **Backend (.env)**
