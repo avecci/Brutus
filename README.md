@@ -2,7 +2,8 @@
 
 ## Introduction
 Brutus is an artificial intelligence robot built on top of AWS machine learning services, Raspberry PI and related machinery. The project is coded in Python.
-[![Brutus introduction](https://img.youtube.com/vi4MI_6AYFU6Y/0.jpg)](https://www.youtube.com/watch?v=4MI_6AYFU6Y)
+
+[![Brutus introduction](https://img.youtube.com/vi/4MI_6AYFU6Y/0.jpg)](https://www.youtube.com/watch?v=4MI_6AYFU6Y)
 
 This project includes a Raspberry Pi client, API backend interface created with [FastAPI](https://fastapi.tiangolo.com), and frontend built with [ReactPy](https://reactpy.dev/docs/index.html).  Backend and frontend are served via [uvicorn](https://www.uvicorn.org) web servers, which you can access via browser on your local network.
 
