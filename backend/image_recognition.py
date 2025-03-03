@@ -161,11 +161,9 @@ class BrutusEyes:
                 if name != base_concept:
                     consolidated[base_concept]["RelatedLabels"].add(name)
 
-                # Update confidence if higher
                 if confidence > consolidated[base_concept]["Confidence"]:
                     consolidated[base_concept]["Confidence"] = confidence
 
-                # Add instances without duplication
                 if instances:
                     instance_dict = {}
                     for instance in instances:
@@ -179,13 +177,11 @@ class BrutusEyes:
                         instance_dict.values()
                     )
 
-            # Convert sets to sorted lists for JSON serialization
             consolidated_labels = []
             for label in consolidated.values():
                 label["RelatedLabels"] = sorted(label["RelatedLabels"])
                 consolidated_labels.append(label)
 
-            # Sort by confidence
             consolidated_labels.sort(key=lambda x: x["Confidence"], reverse=True)
 
             logger.info(
@@ -340,11 +336,10 @@ class BrutusEyes:
             if f.lower().endswith((".png", ".jpg", ".jpeg"))
         ]
 
+        # Use filename as person name
         for library_image in library_images:
             library_image_path = os.path.join(library_folder, library_image)
-            person_name = os.path.splitext(library_image)[
-                0
-            ]  # Extract person name from filename
+            person_name = os.path.splitext(library_image)[0]
             try:
                 library_image_bytes = self._source_image(library_image_path)
                 comparison = self.rekognition_client.compare_faces(

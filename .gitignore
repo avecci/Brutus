@@ -27,20 +27,19 @@ share/python-wheels/
 MANIFEST
 
 #Brutus-specific
-raspberrypi_client/input
-
 backend/input/
 backend/reference_library/
 backend/output/
 backend/logs/
-
 backend/tests/input/
 backend/tests/*.jpg
+
+raspberrypi_client/input
+raspberrypi_client/logs/
 
 frontend/logs/
 
 *.log
-*.mp3
 *.wav
 
 # PyInstaller
@@ -71,19 +70,6 @@ cover/
 # Translations
 *.mo
 *.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
 
 # Sphinx documentation
 docs/_build/
@@ -136,10 +122,6 @@ ipython_config.py
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
 
 # SageMath parsed files
 *.sage.py

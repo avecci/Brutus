@@ -60,7 +60,7 @@ async def root() -> Dict[str, Any]:
             "description": "Endpoints for Brutus functionalities provided by backend functions.",
             "endpoints": {
                 # System endpoints
-                "health": "Check system health",
+                "health": "Check backend health",
                 # Image endpoints
                 "image/upload": "Upload new image",
                 "image/analyze": "Analyze image for labels",

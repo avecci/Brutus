@@ -27,7 +27,6 @@ class Settings:
     HOST: str = "0.0.0.0"
     PORT: int = 3000
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
-    APP_TITLE: str = "B.R.U.T.U.S."
 
 
 settings = Settings()

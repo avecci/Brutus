@@ -4,7 +4,6 @@
 PIDDIR="/tmp/brutus"
 mkdir -p $PIDDIR
 
-# PID file paths
 BACKEND_PID="$PIDDIR/backend.pid"
 FRONTEND_PID="$PIDDIR/frontend.pid"
 
@@ -93,7 +92,7 @@ poetry run task start &
 echo $! > "$FRONTEND_PID"
 
 echo "Services started successfully!"
-echo "Use stop.sh to stop the services"
+echo "Use stop.sh to stop the services."
 
 # Wait for signals
 wait

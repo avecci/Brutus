@@ -3,8 +3,6 @@
 # Directory for PID files
 PIDDIR="/tmp/brutus"
 mkdir -p $PIDDIR
-
-# PID file path
 PI_CLIENT_PID="$PIDDIR/pi_client.pid"
 
 # Function to stop the client

@@ -3,7 +3,6 @@ from unittest.mock import Mock, mock_open, patch
 
 import pygame
 import pytest
-
 from brutus_pi import AudioHandler, BackendHandler, PictureHandler, Settings
 
 
